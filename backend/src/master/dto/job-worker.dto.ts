@@ -7,6 +7,7 @@ export class CreateJobWorkerDto {
   @IsOptional() @IsString() mobile?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() gstin?: string;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -16,5 +17,6 @@ export class UpdateJobWorkerDto {
   @IsOptional() @IsString() mobile?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() gstin?: string;
   @IsOptional() @IsString() notes?: string;
 }

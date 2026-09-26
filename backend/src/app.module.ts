@@ -25,6 +25,7 @@ import { ReadystockModule } from './readystock/readystock.module';
 import { SalesModule } from './sales/sales.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ReportsModule } from './reports/reports.module';
+import { DocumentsModule } from './documents/documents.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -62,6 +63,7 @@ import { HealthController } from './health.controller';
     SalesModule,
     DashboardsModule,
     ReportsModule,
+    DocumentsModule,
   ],
   controllers: [HealthController],
   providers: [

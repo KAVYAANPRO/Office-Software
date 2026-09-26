@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { StockItem, StockItemSchema } from './schemas/stock-item.schema';
 import { StockLot, StockLotSchema } from './schemas/stock-lot.schema';
@@ -26,7 +26,7 @@ import { MasterModule } from '../master/master.module';
       { name: StockAdjustment.name, schema: StockAdjustmentSchema },
       { name: ReconRun.name, schema: ReconRunSchema },
     ]),
-    MasterModule,
+    forwardRef(() => MasterModule),
   ],
   controllers: [StockQueryController, StockAdjustmentsController],
   providers: [

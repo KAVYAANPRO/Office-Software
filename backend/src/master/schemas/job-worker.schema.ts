@@ -28,6 +28,10 @@ export class JobWorker extends BaseMasterFields {
   @Prop({ type: String, required: false })
   address?: string;
 
+  /** DOC-01/A-19: a delivery challan for goods sent to a job worker needs both parties' GSTIN (CGST Rule 55). */
+  @Prop({ type: String, required: false, uppercase: true, trim: true })
+  gstin?: string;
+
   @Prop({ type: String, required: false })
   notes?: string;
 

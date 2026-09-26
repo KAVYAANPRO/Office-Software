@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { InventoryModule } from '../inventory/inventory.module';
 import { Supplier, SupplierSchema } from './schemas/supplier.schema';
 import { Customer, CustomerSchema } from './schemas/customer.schema';
 import { JobWorker, JobWorkerSchema } from './schemas/job-worker.schema';
@@ -70,6 +71,10 @@ import { ImportBatch, ImportBatchSchema } from './schemas/import-batch.schema';
       { name: CompanySettings.name, schema: CompanySettingsSchema },
       { name: ImportBatch.name, schema: ImportBatchSchema },
     ]),
+    // MST-11's opening-stock import needs the stock engine; InventoryModule already imports
+    // MasterModule (for StockLocation etc.), so this side needs forwardRef() to avoid a
+    // circular require - the same pattern already used for CostingModule <-> JobworkModule.
+    forwardRef(() => InventoryModule),
   ],
   controllers: [
     SuppliersController,
