@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-surface: #ffffff;
+  --color-background: #f8fafc;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 72px;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Semantic component aliases — backed by Tailwind utilities */
+@layer components {
+  .text-muted {
+    @apply text-slate-500;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-sm p-6;
+  }
+
+  .icon-btn {
+    @apply flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer border-0 bg-transparent;
+  }
+
+  /* Form elements */
+  .input-group {
+    @apply flex flex-col gap-1 mb-0;
+  }
+
+  .input-label {
+    @apply text-sm font-medium text-slate-700;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+  }
+
+  .input-error {
+    @apply border-red-400 focus:ring-red-400 focus:border-red-400;
+  }
+
+  .input-error-msg {
+    @apply text-xs text-red-500;
+  }
+}
