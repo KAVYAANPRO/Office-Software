@@ -27,4 +27,13 @@ export const envValidationSchema = Joi.object({
   COMPANY_STATE: Joi.string().default('Maharashtra'),
   COMPANY_GSTIN: Joi.string().default(''),
   CURRENT_FINANCIAL_YEAR: Joi.string().default('26-27'),
+
+  // NFR-04: an explicit allowlist, never a wildcard - the admin web app and factory portal
+  // origins, comma-separated. Reflecting any origin (the old behaviour) defeats the same-origin
+  // guarantee CORS exists for once credentials are involved.
+  CORS_ORIGINS: Joi.string().default('http://localhost:5173,http://localhost:3000'),
+
+  CLOUDINARY_CLOUD_NAME: Joi.string().allow('').default(''),
+  CLOUDINARY_API_KEY: Joi.string().allow('').default(''),
+  CLOUDINARY_API_SECRET: Joi.string().allow('').default(''),
 });

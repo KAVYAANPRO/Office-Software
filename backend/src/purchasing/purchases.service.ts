@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Model } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { Purchase, PurchaseDocument, PurchaseLine } from './schemas/purchase.schema';
 import { Inward, InwardDocument } from './schemas/inward.schema';
 import { MaterialVariant, MaterialVariantDocument } from '../master/schemas/material.schema';
@@ -238,8 +238,8 @@ export class PurchasesService {
         input.qty,
       );
       lines.push({
-        materialVariantId: input.materialVariantId,
-        uomId: input.uomId,
+        materialVariantId: new Types.ObjectId(input.materialVariantId),
+        uomId: new Types.ObjectId(input.uomId),
         qty: roundQty(input.qty),
         rate: input.rate,
         amount: roundMoney(toDecimal(input.qty).times(input.rate)),

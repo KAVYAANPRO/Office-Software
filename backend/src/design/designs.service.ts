@@ -244,6 +244,16 @@ export class DesignsService extends MasterCrudService<Design> {
       .lean();
   }
 
+  async addImage(designId: string, url: string, actorId: string): Promise<Design> {
+    const design = await this.model.findByIdAndUpdate(
+      designId,
+      { $push: { imageUrls: url }, $set: { updatedBy: actorId }, $inc: { version: 1 } },
+      { new: true },
+    );
+    if (!design) throw new ProblemException('NOT_FOUND', 404, 'Design not found.');
+    return design.toObject();
+  }
+
   // ---- Requirement calculator (DSN-05) ----
 
   /**

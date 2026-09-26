@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
@@ -7,11 +8,19 @@ import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedRequest, AuthenticatedUser } from '../common/types/authenticated-request';
-import { SESSION_COOKIE_NAME } from './identity.constants';
+import { SESSION_COOKIE_NAME, CSRF_COOKIE_NAME } from './identity.constants';
 import { UnauthenticatedException } from '../common/errors/problem.exception';
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+};
+
+/** Not httpOnly - the SPA must be able to read it and echo it back as the X-CSRF-Token header (double-submit pattern). */
+const CSRF_COOKIE_OPTIONS = {
+  httpOnly: false,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
   path: '/',
@@ -40,6 +49,10 @@ export class AuthController {
       ...COOKIE_OPTIONS,
       expires: result.expiresAt,
     });
+    res.cookie(CSRF_COOKIE_NAME, randomBytes(32).toString('hex'), {
+      ...CSRF_COOKIE_OPTIONS,
+      expires: result.expiresAt,
+    });
     return { user: this.publicUser(result.user) };
   }
 
@@ -49,6 +62,7 @@ export class AuthController {
   async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response) {
     if (req.sessionId) await this.authService.logout(req.sessionId);
     res.clearCookie(SESSION_COOKIE_NAME, COOKIE_OPTIONS);
+    res.clearCookie(CSRF_COOKIE_NAME, CSRF_COOKIE_OPTIONS);
     return { ok: true };
   }
 

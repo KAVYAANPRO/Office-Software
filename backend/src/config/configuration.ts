@@ -23,6 +23,12 @@ export interface AppConfig {
     gstin: string;
     currentFy: string;
   };
+  corsOrigins: string[];
+  cloudinary: {
+    cloudName: string;
+    apiKey: string;
+    apiSecret: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -49,5 +55,14 @@ export default (): AppConfig => ({
     state: process.env.COMPANY_STATE ?? 'Maharashtra',
     gstin: process.env.COMPANY_GSTIN ?? '',
     currentFy: process.env.CURRENT_FINANCIAL_YEAR ?? '26-27',
+  },
+  corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173,http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? '',
+    apiKey: process.env.CLOUDINARY_API_KEY ?? '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   },
 });

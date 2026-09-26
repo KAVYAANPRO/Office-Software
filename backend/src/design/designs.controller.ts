@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MasterCrudController } from '../common/controllers/master-crud.mixin';
 import { DesignsService } from './designs.service';
 import { CreateDesignDto, SetDesignRateDto, UpdateDesignDto } from './dto/design.dto';
@@ -9,6 +10,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-request';
 import { PERMISSIONS } from '../identity/permissions.catalogue';
 import { validateDto } from '../common/utils/validate-dto';
 import { ProblemException } from '../common/errors/problem.exception';
+import { UploadsService } from '../uploads/uploads.service';
 
 const Base = MasterCrudController<DesignsService>({
   viewPermission: PERMISSIONS.DESIGN_VIEW,
@@ -19,8 +21,24 @@ const Base = MasterCrudController<DesignsService>({
 
 @Controller('api/v1/designs')
 export class DesignsController extends Base {
-  constructor(private readonly designsService: DesignsService) {
+  constructor(
+    private readonly designsService: DesignsService,
+    private readonly uploadsService: UploadsService,
+  ) {
     super(designsService);
+  }
+
+  /** A real binary upload (design photo) - streamed straight to Cloudinary, never written to this server's disk (NFR-04). */
+  @RequirePermissions(PERMISSIONS.DESIGN_EDIT)
+  @Post(':id/images')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadImage(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    const uploaded = await this.uploadsService.upload(file, 'design-images');
+    return this.designsService.addImage(id, uploaded.url, actor.id);
   }
 
   @RequirePermissions(PERMISSIONS.DESIGN_VIEW)

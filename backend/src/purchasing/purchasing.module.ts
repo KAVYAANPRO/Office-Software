@@ -8,6 +8,7 @@ import { InwardsService } from './inwards.service';
 import { InwardsController } from './inwards.controller';
 import { MasterModule } from '../master/master.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     ]),
     MasterModule,
     InventoryModule,
+    UploadsModule,
   ],
   controllers: [PurchasesController, InwardsController],
   providers: [PurchasesService, InwardsService],

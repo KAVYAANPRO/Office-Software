@@ -10,6 +10,7 @@ import { RequestContextMiddleware } from './common/middleware/request-context.mi
 import { ProblemExceptionFilter } from './common/filters/problem.filter';
 import { SessionAuthGuard } from './common/guards/session-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { CsrfGuard } from './common/guards/csrf.guard';
 import { IdempotencyInterceptor } from './common/interceptors/idempotency.interceptor';
 import { CommonModule } from './common/common.module';
 import { AuditModule } from './audit/audit.module';
@@ -69,8 +70,10 @@ import { HealthController } from './health.controller';
   providers: [
     { provide: APP_FILTER, useClass: ProblemExceptionFilter },
     // Order matters: rate-limit first (cheapest check, rejects abuse before any DB work),
-    // then SessionAuthGuard resolves req.user, then PermissionsGuard reads it.
+    // then CsrfGuard (needs only the raw cookie, not req.user), then SessionAuthGuard
+    // resolves req.user, then PermissionsGuard reads it.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: SessionAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString, MinLength } from 'class-validator';
 import { PurchasesService } from './purchases.service';
 import { CancelPurchaseDto, CreatePurchaseDto, UpdatePurchaseDto } from './dto/purchase.dto';
@@ -8,6 +9,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-request';
 import { PERMISSIONS } from '../identity/permissions.catalogue';
 import { validateDto } from '../common/utils/validate-dto';
+import { UploadsService } from '../uploads/uploads.service';
 
 class AddAttachmentDto {
   @IsString() @MinLength(1) url!: string;
@@ -15,7 +17,10 @@ class AddAttachmentDto {
 
 @Controller('api/v1/purchases')
 export class PurchasesController {
-  constructor(private readonly service: PurchasesService) {}
+  constructor(
+    private readonly service: PurchasesService,
+    private readonly uploadsService: UploadsService,
+  ) {}
 
   @RequirePermissions(PERMISSIONS.PURCHASE_VIEW)
   @Get()
@@ -89,5 +94,18 @@ export class PurchasesController {
   ) {
     const dto = await validateDto(AddAttachmentDto, body);
     return this.service.addAttachment(id, dto.url, actor.id);
+  }
+
+  /** PUR-07: a real binary upload (invoice scan, delivery note) - streamed straight to Cloudinary, never written to this server's disk. */
+  @RequirePermissions(PERMISSIONS.PURCHASE_EDIT)
+  @Post(':id/attachments/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    const uploaded = await this.uploadsService.upload(file, 'purchase-attachments');
+    return this.service.addAttachment(id, uploaded.url, actor.id);
   }
 }

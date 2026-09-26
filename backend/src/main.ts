@@ -19,7 +19,14 @@ async function bootstrap() {
   // upstream of this process (load balancer/reverse proxy), not configured here.
   app.use(helmet());
   app.use(cookieParser());
-  app.enableCors({ origin: true, credentials: true });
+  // NFR-04: an explicit allowlist (CORS_ORIGINS), never a wildcard - reflecting any origin
+  // while credentials:true is enabled would let any website make authenticated requests
+  // using a logged-in user's session cookie.
+  const corsOrigins = config.get('corsOrigins', { infer: true });
+  app.enableCors({
+    origin: corsOrigins,
+    credentials: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

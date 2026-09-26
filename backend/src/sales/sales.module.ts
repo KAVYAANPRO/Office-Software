@@ -15,11 +15,15 @@ import { InvoicesController } from './invoices.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
 import { TraceService } from './trace.service';
+import { DesignHistoryService } from './design-history.service';
+import { DesignHistoryController } from './design-history.controller';
 import { MasterModule } from '../master/master.module';
 import { DesignModule } from '../design/design.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { JobworkModule } from '../jobwork/jobwork.module';
 import { PurchasingModule } from '../purchasing/purchasing.module';
+import { CostingModule } from '../costing/costing.module';
+import { ReadystockModule } from '../readystock/readystock.module';
 
 @Module({
   imports: [
@@ -35,9 +39,11 @@ import { PurchasingModule } from '../purchasing/purchasing.module';
     InventoryModule,
     JobworkModule,
     PurchasingModule,
+    CostingModule,
+    ReadystockModule,
   ],
-  controllers: [SalesOrdersController, InvoicesController, PaymentsController],
-  providers: [SalesOrdersService, InvoicesService, PaymentsService, TraceService],
+  controllers: [SalesOrdersController, InvoicesController, PaymentsController, DesignHistoryController],
+  providers: [SalesOrdersService, InvoicesService, PaymentsService, TraceService, DesignHistoryService],
   exports: [SalesOrdersService, InvoicesService, PaymentsService, MongooseModule],
 })
 export class SalesModule {}

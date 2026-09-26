@@ -7,6 +7,7 @@ import { DesignRateHistory, DesignRateHistorySchema } from './schemas/design-rat
 import { DesignsService } from './designs.service';
 import { DesignsController } from './designs.controller';
 import { InventoryModule } from '../inventory/inventory.module';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { InventoryModule } from '../inventory/inventory.module';
       { name: DesignRateHistory.name, schema: DesignRateHistorySchema },
     ]),
     InventoryModule,
+    UploadsModule,
   ],
   controllers: [DesignsController],
   providers: [DesignsService],
