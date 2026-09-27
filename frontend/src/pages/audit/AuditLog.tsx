@@ -1,58 +1,39 @@
 import { useState, useEffect } from 'react';
 import { Download } from 'lucide-react';
-
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: string;
-  module: string;
-  refNo: string;
-  description: string;
-  ipAddress: string;
-}
-
-// TODO: Replace with API call — GET /api/v1/audit-log
-const mockAudit: AuditEntry[] = [
-  { id: '1', timestamp: '25-09-2026 14:32:05', user: 'admin', action: 'CONFIRM', module: 'Sales', refNo: 'SO-26-004', description: 'Sales order SO-26-004 confirmed. 60 pcs reserved for Fab India Retail.', ipAddress: '192.168.1.12' },
-  { id: '2', timestamp: '25-09-2026 13:18:44', user: 'admin', action: 'CREATE', module: 'Invoice', refNo: 'INV-26-013', description: 'Invoice INV-26-013 created for SO-26-004. Amount ₹75,000.', ipAddress: '192.168.1.12' },
-  { id: '3', timestamp: '25-09-2026 11:55:02', user: 'admin', action: 'POST', module: 'Reconciliation', refNo: 'JS-24-099', description: 'Reconciliation closed for JS-24-099. 10 m fabric written off — reason: cutting waste.', ipAddress: '192.168.1.12' },
-  { id: '4', timestamp: '24-09-2026 16:22:11', user: 'admin', action: 'POST', module: 'Receiving', refNo: 'RCV-24-099', description: 'Finished goods received: 290 accepted, 10 rejected → Quarantine.', ipAddress: '192.168.1.12' },
-  { id: '5', timestamp: '24-09-2026 10:05:33', user: 'admin', action: 'CONFIRM', module: 'Sales', refNo: 'SO-26-003', description: 'Sales order SO-26-003 confirmed for Lifestyle Stores. 320 pcs reserved.', ipAddress: '192.168.1.15' },
-  { id: '6', timestamp: '23-09-2026 09:41:19', user: 'admin', action: 'ADJUST', module: 'Inventory', refNo: 'ADJ-26-004', description: 'Stock adjustment: Cotton Fabric (Navy Blue) −5 m. Reason: Physical recount.', ipAddress: '192.168.1.12' },
-  { id: '7', timestamp: '22-09-2026 15:00:00', user: 'admin', action: 'PAYMENT', module: 'Payments', refNo: 'PMT-26-001', description: 'Payment ₹2,33,415 recorded for INV-26-010. Mode: NEFT.', ipAddress: '192.168.1.12' },
-  { id: '8', timestamp: '22-09-2026 08:30:00', user: 'admin', action: 'ISSUE', module: 'Production', refNo: 'ISS-24-099', description: 'Material issued for JS-24-099: 800 m cotton + 348 m lining.', ipAddress: '192.168.1.12' },
-];
+import { listAuditLog } from '../../lib/mock/db';
+import type { AuditLogEntry } from '../../types/domain';
 
 const actionCls: Record<string, string> = {
-  CREATE: 'bg-blue-100 text-blue-700',
-  CONFIRM: 'bg-green-100 text-green-700',
-  POST: 'bg-purple-100 text-purple-700',
-  ISSUE: 'bg-amber-100 text-amber-700',
-  ADJUST: 'bg-orange-100 text-orange-700',
-  PAYMENT: 'bg-teal-100 text-teal-700',
-  CANCEL: 'bg-red-100 text-red-700',
-  EDIT: 'bg-slate-100 text-slate-600',
+  Created: 'bg-blue-100 text-blue-700',
+  Confirmed: 'bg-green-100 text-green-700',
+  Posted: 'bg-purple-100 text-purple-700',
+  Issued: 'bg-amber-100 text-amber-700',
+  Adjusted: 'bg-orange-100 text-orange-700',
+  Cancelled: 'bg-red-100 text-red-700',
+  Edited: 'bg-slate-100 text-slate-600',
 };
 
-const modules = ['All', 'Sales', 'Invoice', 'Payments', 'Production', 'Receiving', 'Reconciliation', 'Inventory'];
-
 export function AuditLog() {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [moduleFilter, setModuleFilter] = useState('All');
 
   useEffect(() => {
-    const t = setTimeout(() => { setEntries(mockAudit); setIsLoading(false); }, 600);
-    return () => clearTimeout(t);
+    let active = true;
+    listAuditLog().then(rows => {
+      if (active) { setEntries(rows); setIsLoading(false); }
+    });
+    return () => { active = false; };
   }, []);
+
+  const modules = ['All', ...Array.from(new Set(entries.map(e => e.module)))];
 
   const filtered = entries.filter(e =>
     (moduleFilter === 'All' || e.module === moduleFilter) &&
-    (e.refNo.toLowerCase().includes(search.toLowerCase()) ||
+    (e.recordId.toLowerCase().includes(search.toLowerCase()) ||
       e.user.toLowerCase().includes(search.toLowerCase()) ||
-      e.description.toLowerCase().includes(search.toLowerCase()))
+      (e.newValue ?? '').toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -60,19 +41,18 @@ export function AuditLog() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Audit Log</h1>
-          <p className="text-sm text-slate-500">Immutable record of all system actions. Rows cannot be edited or deleted.</p>
+          <p className="text-sm text-slate-500">Append-only record of every business-table change. Nobody can edit or delete an entry through the application (AUD-01/AUD-02).</p>
         </div>
         <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50">
           <Download size={15} /> Export CSV
         </button>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <input
             type="text"
-            placeholder="Search by ref no., user, description..."
+            placeholder="Search by reference, user, description..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -96,12 +76,11 @@ export function AuditLog() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
         <table className="w-full text-sm text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              {['Timestamp', 'User', 'Action', 'Module', 'Reference', 'Description', 'IP'].map(h => (
+              {['Timestamp', 'User', 'Action', 'Module', 'Reference', 'Change'].map(h => (
                 <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -110,13 +89,13 @@ export function AuditLog() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-slate-100 animate-pulse">
-                  {Array.from({ length: 7 }).map((_, j) => (
+                  {Array.from({ length: 6 }).map((_, j) => (
                     <td key={j} className="px-4 py-3"><div className="h-3 bg-slate-200 rounded" /></td>
                   ))}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">No audit entries found.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">No audit entries found.</td></tr>
             ) : filtered.map(e => (
               <tr key={e.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                 <td className="px-4 py-3 font-mono text-xs text-slate-500 whitespace-nowrap">{e.timestamp}</td>
@@ -127,9 +106,11 @@ export function AuditLog() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-slate-600">{e.module}</td>
-                <td className="px-4 py-3 font-mono text-xs text-blue-700">{e.refNo}</td>
-                <td className="px-4 py-3 text-slate-700 max-w-xs">{e.description}</td>
-                <td className="px-4 py-3 font-mono text-xs text-slate-400">{e.ipAddress}</td>
+                <td className="px-4 py-3 font-mono text-xs text-blue-700">{e.recordId}</td>
+                <td className="px-4 py-3 text-slate-700 max-w-xs">
+                  {e.previousValue && <span className="text-slate-400 line-through mr-1">{e.previousValue}</span>}
+                  {e.newValue}
+                </td>
               </tr>
             ))}
           </tbody>

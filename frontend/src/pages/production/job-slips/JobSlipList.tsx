@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import type { JobSlipStatus } from '../../../types/domain';
 
 interface JobSlip {
   id: string;
@@ -11,13 +12,13 @@ interface JobSlip {
   factoryName: string;
   batchQty: number;
   targetDate: string;
-  status: 'Draft' | 'Issued' | 'In Progress' | 'Completed' | 'Cancelled';
+  status: JobSlipStatus;
 }
 
 const mockJobSlips: JobSlip[] = [
-  { id: '1', slipNumber: 'JS-24-101', designSku: 'DR-1024', factoryName: 'Super Stitchers', batchQty: 500, targetDate: '25-10-2024', status: 'In Progress' },
-  { id: '2', slipNumber: 'JS-24-102', designSku: 'KU-5501', factoryName: 'Krishna Dyeing Works', batchQty: 1000, targetDate: '30-10-2024', status: 'Issued' },
-  { id: '3', slipNumber: 'JS-24-103', designSku: 'LG-8092', factoryName: 'Precision Cutters', batchQty: 200, targetDate: '05-11-2024', status: 'Draft' },
+  { id: '1', slipNumber: 'JS-24-101', designSku: 'DR-1024', factoryName: 'Super Stitchers', batchQty: 500, targetDate: '25-10-2024', status: 'In Process' },
+  { id: '2', slipNumber: 'JS-24-102', designSku: 'KU-5501', factoryName: 'Krishna Dyeing Works', batchQty: 1000, targetDate: '30-10-2024', status: 'Material Issued' },
+  { id: '3', slipNumber: 'JS-24-103', designSku: 'LG-8092', factoryName: 'Precision Cutters', batchQty: 200, targetDate: '05-11-2024', status: 'Created' },
 ];
 
 export function JobSlipList() {
@@ -40,12 +41,15 @@ export function JobSlipList() {
     js.factoryName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getStatusBadgeClass = (status: string) => {
-    switch(status) {
-      case 'Completed': return 'bg-green-100 text-green-800';
-      case 'In Progress': return 'bg-blue-100 text-blue-800';
-      case 'Issued': return 'bg-yellow-100 text-yellow-800';
-      case 'Draft': return 'bg-gray-100 text-gray-800';
+  const getStatusBadgeClass = (status: JobSlipStatus) => {
+    switch (status) {
+      case 'Closed':
+      case 'Received': return 'bg-green-100 text-green-800';
+      case 'In Process':
+      case 'Ready':
+      case 'Partially Received': return 'bg-blue-100 text-blue-800';
+      case 'Material Issued': return 'bg-yellow-100 text-yellow-800';
+      case 'Created': return 'bg-gray-100 text-gray-800';
       case 'Cancelled': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }

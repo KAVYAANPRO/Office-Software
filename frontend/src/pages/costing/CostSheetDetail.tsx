@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Lock, TrendingUp, TrendingDown } from 'lucide-react';
+import { Can } from '../../lib/permissions/Can';
 
 interface CostLine {
   label: string;
@@ -92,6 +93,14 @@ export function CostSheetDetail() {
         </div>
       </div>
 
+      <Can
+        perm="costing.view"
+        fallback={
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">
+            You don't have permission to view costing data.
+          </div>
+        }
+      >
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-center">
@@ -215,6 +224,7 @@ export function CostSheetDetail() {
           This is a <span className="font-semibold">provisional</span> cost sheet. Costs will be finalised once the job is closed and all charges are confirmed.
         </div>
       )}
+      </Can>
     </div>
   );
 }

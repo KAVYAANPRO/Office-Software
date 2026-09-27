@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, AlertTriangle, Info } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
+import { RestrictedValue } from '../../../lib/permissions/Can';
 
 interface RowEntry {
   colour: string;
@@ -111,7 +113,9 @@ export function ReceivingForm() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input label="Receiving Date *" type="text" placeholder="DD-MM-YYYY" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} error={errors.date} />
-            <Input label="Mfg. Charges (₹)" type="number" min="0" step="0.01" value={form.mfgCharges} onChange={e => setForm(f => ({ ...f, mfgCharges: e.target.value }))} placeholder="0.00" />
+            <RestrictedValue perm="receiving.rate.view">
+              <Input label="Mfg. Charges (₹)" type="number" min="0" step="0.01" value={form.mfgCharges} onChange={e => setForm(f => ({ ...f, mfgCharges: e.target.value }))} placeholder="0.00" />
+            </RestrictedValue>
             <Input label="Remarks" value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} placeholder="Optional notes" />
           </div>
         </div>
@@ -207,24 +211,22 @@ export function ReceivingForm() {
       </form>
 
       {/* Confirm dialog */}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-slate-900">Confirm Receiving</h2>
-            <div className="bg-slate-50 rounded-lg p-4 text-sm flex flex-col gap-2">
-              <div><span className="text-slate-500">Job Slip:</span> <span className="font-medium">{form.jobSlip}</span></div>
-              <div><span className="text-green-600 font-medium">{totals.accepted} pcs accepted</span> → Ready Stock</div>
-              {totals.rejected + totals.damaged > 0 && (
-                <div><span className="text-red-500 font-medium">{totals.rejected + totals.damaged} pcs rejected/damaged</span> → Quarantine</div>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <Button variant="primary" onClick={confirmSave} className="flex-1">Confirm & Post</Button>
-              <Button variant="secondary" onClick={() => setShowConfirm(false)} className="flex-1">Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirm Receiving"
+        impact={
+          <>
+            <span className="text-green-600 font-medium">{totals.accepted} pcs accepted</span> will move to <strong>Ready Stock</strong>.
+            {totals.rejected + totals.damaged > 0 && (
+              <> <span className="text-red-500 font-medium">{totals.rejected + totals.damaged} pcs rejected/damaged</span> will move to <strong>Quarantine</strong>.</>
+            )}
+            {' '}Job Slip: {form.jobSlip}.
+          </>
+        }
+        confirmLabel="Confirm & Post"
+        onConfirm={confirmSave}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

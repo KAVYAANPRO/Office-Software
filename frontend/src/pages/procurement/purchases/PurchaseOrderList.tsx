@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { RestrictedValue } from '../../../lib/permissions/Can';
 
 interface PurchaseOrder {
   id: string;
@@ -51,9 +52,13 @@ export function PurchaseOrderList() {
     { header: 'PO Number', accessor: 'poNumber' as keyof PurchaseOrder },
     { header: 'Supplier', accessor: 'supplierName' as keyof PurchaseOrder },
     { header: 'Date', accessor: 'date' as keyof PurchaseOrder },
-    { 
-      header: 'Total Amount', 
-      accessor: (row: PurchaseOrder) => `₹ ${row.totalAmount.toLocaleString('en-IN')}`
+    {
+      header: 'Total Amount',
+      accessor: (row: PurchaseOrder) => (
+        <RestrictedValue perm="purchases.rate.view">
+          {`₹ ${row.totalAmount.toLocaleString('en-IN')}`}
+        </RestrictedValue>
+      )
     },
     { 
       header: 'Status', 

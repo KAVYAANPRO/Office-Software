@@ -5,6 +5,9 @@ import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
+import { RestrictedValue } from '../../../lib/permissions/Can';
+import { apportionOtherCharges } from '../../../lib/mock/fifo';
 
 interface POItem {
   id: string;
@@ -13,6 +16,12 @@ interface POItem {
   rate: number;
 }
 
+/** PUR-02 — supplier invoice numbers already recorded, keyed by supplier. */
+const EXISTING_SUPPLIER_INVOICES: Record<string, string[]> = {
+  'sup-1': ['INV-8841', 'INV-8902'],
+  'sup-2': ['ZD-2201'],
+};
+
 export function PurchaseOrderForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -20,12 +29,23 @@ export function PurchaseOrderForm() {
 
   const [isLoading, setIsLoading] = useState(isEditing);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
   const [formData, setFormData] = useState({
     supplierId: '',
+    supplierInvoiceNo: '',
     expectedDelivery: '',
+    otherCharges: 0,
     notes: '',
   });
+  const [invoiceNoError, setInvoiceNoError] = useState('');
+
+  // PUR-06 — a confirmed purchase is locked apart from notes/attachment.
+  // Every existing PO opened for edit here is already Confirmed, since Draft
+  // POs would not yet have a persisted id to navigate back to.
+  const [status] = useState<'Draft' | 'Confirmed'>(isEditing ? 'Confirmed' : 'Draft');
+  const isLocked = status === 'Confirmed';
 
   const [items, setItems] = useState<POItem[]>([
     { id: 'item-1', materialId: '', quantity: 1, rate: 0 }
@@ -37,7 +57,9 @@ export function PurchaseOrderForm() {
       const timer = setTimeout(() => {
         setFormData({
           supplierId: 'sup-1',
+          supplierInvoiceNo: 'INV-8841',
           expectedDelivery: '2024-11-01',
+          otherCharges: 500,
           notes: 'Deliver to unit 2',
         });
         setItems([
@@ -75,18 +97,42 @@ export function PurchaseOrderForm() {
     }
   };
 
-  const calculateTotal = () => {
-    return items.reduce((total, item) => total + (item.quantity * item.rate), 0);
+  const lineAmounts = items.map(item => item.quantity * item.rate);
+  const calculateTotal = () => lineAmounts.reduce((total, amt) => total + amt, 0);
+
+  /** PUR-04 — other charges apportioned across lines by value, for a landed unit cost per lot. */
+  const apportionedCharges = apportionOtherCharges(lineAmounts, formData.otherCharges || 0);
+
+  /** PUR-02 — same supplier invoice number cannot be entered twice for one supplier. */
+  const checkDuplicateInvoice = (): boolean => {
+    const existing = EXISTING_SUPPLIER_INVOICES[formData.supplierId] ?? [];
+    if (formData.supplierInvoiceNo && existing.includes(formData.supplierInvoiceNo.trim())) {
+      setInvoiceNoError(`Invoice ${formData.supplierInvoiceNo} is already recorded for this supplier.`);
+      return true;
+    }
+    setInvoiceNoError('');
+    return false;
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (checkDuplicateInvoice()) return;
+    setShowConfirm(true);
+  };
+
+  const confirmSubmit = async () => {
+    setShowConfirm(false);
     setIsSaving(true);
-    
+
     // Mock save
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     setIsSaving(false);
+    navigate('/procurement/purchases');
+  };
+
+  const confirmCancel = () => {
+    setShowCancelConfirm(false);
     navigate('/procurement/purchases');
   };
 
@@ -110,19 +156,26 @@ export function PurchaseOrderForm() {
         </div>
       </div>
 
+      {isLocked && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+          This purchase order is <strong>Confirmed</strong> and locked (PUR-06). Only notes and attachments stay editable — cancel it (with a reason) instead of editing supplier, items, or rates.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         {/* Header Details */}
         <Card className="flex flex-col gap-4">
           <h3 className="font-semibold text-lg border-b border-[var(--color-border)] pb-2 mb-2">Order Details</h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="input-group">
               <label className="input-label">Supplier</label>
-              <select 
-                name="supplierId" 
-                value={formData.supplierId} 
+              <select
+                name="supplierId"
+                value={formData.supplierId}
                 onChange={handleHeaderChange}
                 className="input-field"
+                disabled={isLocked}
                 required
               >
                 <option value="">Select Supplier...</option>
@@ -131,22 +184,47 @@ export function PurchaseOrderForm() {
                 <option value="sup-3">Premium Trims Ltd</option>
               </select>
             </div>
-            
-            <Input 
-              label="Expected Delivery Date" 
-              name="expectedDelivery" 
-              type="date"
-              value={formData.expectedDelivery} 
-              onChange={handleHeaderChange} 
-              required 
+
+            <Input
+              label="Supplier Invoice Number"
+              name="supplierInvoiceNo"
+              value={formData.supplierInvoiceNo}
+              onChange={handleHeaderChange}
+              onBlur={checkDuplicateInvoice}
+              disabled={isLocked}
+              error={invoiceNoError}
+              placeholder="e.g. INV-8841"
             />
+
+            <Input
+              label="Expected Delivery Date"
+              name="expectedDelivery"
+              type="date"
+              value={formData.expectedDelivery}
+              onChange={handleHeaderChange}
+              disabled={isLocked}
+              required
+            />
+
+            <RestrictedValue perm="purchases.rate.view">
+              <Input
+                label="Other Charges (₹) — freight, etc."
+                name="otherCharges"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.otherCharges || ''}
+                onChange={e => setFormData(prev => ({ ...prev, otherCharges: parseFloat(e.target.value) || 0 }))}
+                disabled={isLocked}
+              />
+            </RestrictedValue>
           </div>
-          
+
           <div className="input-group">
             <label className="input-label">Notes / Instructions</label>
-            <textarea 
-              name="notes" 
-              value={formData.notes} 
+            <textarea
+              name="notes"
+              value={formData.notes}
               onChange={handleHeaderChange}
               className="input-field min-h-[80px] resize-y"
               placeholder="Any special instructions for the supplier..."
@@ -158,7 +236,7 @@ export function PurchaseOrderForm() {
         <Card className="flex flex-col gap-4">
           <div className="flex justify-between items-center border-b border-[var(--color-border)] pb-2 mb-2">
             <h3 className="font-semibold text-lg">Materials</h3>
-            <Button type="button" variant="outline" onClick={addItem}>
+            <Button type="button" variant="outline" onClick={addItem} disabled={isLocked}>
               <Plus size={16} /> Add Item
             </Button>
           </div>
@@ -168,21 +246,23 @@ export function PurchaseOrderForm() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[var(--color-border)]">
-                  <th className="p-2 text-sm font-semibold text-muted w-[40%]">Material</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[20%]">Quantity</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[20%]">Rate (₹)</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[15%]">Total (₹)</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[32%]">Material</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[16%]">Quantity</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[16%]">Rate (₹)</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[13%]">Total (₹)</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[18%]">Landed Unit Cost (₹)</th>
                   <th className="p-2 text-sm font-semibold text-muted w-[5%]"></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {items.map((item, idx) => (
                   <tr key={item.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="p-2">
-                      <select 
+                      <select
                         className="input-field w-full"
                         value={item.materialId}
                         onChange={(e) => handleItemChange(item.id, 'materialId', e.target.value)}
+                        disabled={isLocked}
                         required
                       >
                         <option value="">Select Material...</option>
@@ -192,35 +272,48 @@ export function PurchaseOrderForm() {
                       </select>
                     </td>
                     <td className="p-2">
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="1"
                         step="0.01"
                         className="input-field w-full"
                         value={item.quantity || ''}
                         onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                        disabled={isLocked}
                         required
                       />
                     </td>
                     <td className="p-2">
-                      <input 
-                        type="number" 
-                        min="0"
-                        step="0.01"
-                        className="input-field w-full"
-                        value={item.rate || ''}
-                        onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                        required
-                      />
+                      <RestrictedValue perm="purchases.rate.view">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="input-field w-full"
+                          value={item.rate || ''}
+                          onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
+                          disabled={isLocked}
+                          required
+                        />
+                      </RestrictedValue>
                     </td>
                     <td className="p-2 font-medium">
-                      {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}
+                      <RestrictedValue perm="purchases.rate.view">
+                        {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}
+                      </RestrictedValue>
+                    </td>
+                    <td className="p-2 text-sm text-slate-600">
+                      <RestrictedValue perm="purchases.rate.view">
+                        {item.quantity > 0
+                          ? (((item.quantity * item.rate) + (apportionedCharges[idx] ?? 0)) / item.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })
+                          : '—'}
+                      </RestrictedValue>
                     </td>
                     <td className="p-2">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => removeItem(item.id)}
-                        disabled={items.length === 1}
+                        disabled={items.length === 1 || isLocked}
                         className="icon-btn text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent"
                       >
                         <Trash2 size={18} />
@@ -230,6 +323,7 @@ export function PurchaseOrderForm() {
                 ))}
               </tbody>
             </table>
+            <p className="text-xs text-muted mt-2">Landed unit cost = (line amount + apportioned other charges) ÷ quantity (PUR-04/§5.5) — this is the cost the resulting lot will carry once inward is confirmed.</p>
           </div>
 
           {/* Mobile Card View */}
@@ -275,18 +369,20 @@ export function PurchaseOrderForm() {
                   </div>
                   <div className="input-group flex-1">
                     <label className="input-label text-xs">Rate</label>
-                    <input 
-                      type="number" 
-                      className="input-field"
-                      value={item.rate || ''}
-                      onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                      required
-                    />
+                    <RestrictedValue perm="purchases.rate.view">
+                      <input
+                        type="number"
+                        className="input-field"
+                        value={item.rate || ''}
+                        onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
+                        required
+                      />
+                    </RestrictedValue>
                   </div>
                 </div>
-                
+
                 <div className="text-right text-sm font-semibold pt-2 border-t border-[var(--color-border)]">
-                  Line Total: ₹ {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}
+                  Line Total: <RestrictedValue perm="purchases.rate.view">₹ {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}</RestrictedValue>
                 </div>
               </div>
             ))}
@@ -296,21 +392,60 @@ export function PurchaseOrderForm() {
           <div className="flex justify-end pt-4 mt-2">
             <div className="bg-[var(--color-background)] p-4 rounded-lg border border-[var(--color-border)] w-full md:w-64 text-right">
               <span className="text-muted text-sm block">Total Order Amount</span>
-              <span className="text-2xl font-bold text-primary">₹ {calculateTotal().toLocaleString('en-IN')}</span>
+              <RestrictedValue perm="purchases.rate.view">
+                <span className="text-2xl font-bold text-primary">₹ {calculateTotal().toLocaleString('en-IN')}</span>
+              </RestrictedValue>
             </div>
           </div>
         </Card>
 
         {/* Actions */}
         <div className="flex justify-end gap-3 sticky bottom-0 bg-[var(--color-background)] p-4 border-t border-[var(--color-border)] -mx-6 px-6">
-          <Button type="button" variant="secondary" onClick={() => navigate('/procurement/purchases')}>
-            Cancel
-          </Button>
-          <Button type="submit" isLoading={isSaving}>
-            Submit Purchase Order
-          </Button>
+          {isLocked ? (
+            <Button type="button" variant="danger" onClick={() => setShowCancelConfirm(true)}>
+              Cancel Purchase Order
+            </Button>
+          ) : (
+            <>
+              <Button type="button" variant="secondary" onClick={() => setShowCancelConfirm(true)}>
+                Cancel
+              </Button>
+              <Button type="submit" isLoading={isSaving}>
+                Submit Purchase Order
+              </Button>
+            </>
+          )}
         </div>
       </form>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirm Purchase Order"
+        impact={
+          <>
+            Confirming creates a <strong>pending inward</strong> for {items.length} material{items.length > 1 ? 's' : ''} from the selected supplier.
+            This does <strong>not</strong> add anything to stock yet — stock is only added once the material is physically received and inward is confirmed (BR-01).
+          </>
+        }
+        confirmLabel="Submit Purchase Order"
+        isLoading={isSaving}
+        onConfirm={confirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title={isLocked ? 'Cancel Purchase Order' : 'Discard Purchase Order'}
+        impact={
+          isLocked
+            ? 'Cancelling a confirmed purchase order requires a reason and is blocked while any inward already exists against it (PUR-06). This mock does not yet persist a reason field — treat this as a preview of that flow.'
+            : 'Discarding this purchase order will lose all entered supplier, item, and rate details. This cannot be undone.'
+        }
+        confirmLabel={isLocked ? 'Cancel Purchase Order' : 'Discard Order'}
+        danger
+        onConfirm={confirmCancel}
+        onCancel={() => setShowCancelConfirm(false)}
+      />
     </div>
   );
 }

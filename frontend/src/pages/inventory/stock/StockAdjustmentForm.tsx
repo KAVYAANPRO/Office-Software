@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { ArrowLeft, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
 
 // Approval threshold: if abs(difference) > 100 units, require approval
 const APPROVAL_THRESHOLD = 100;
@@ -171,37 +172,26 @@ export function StockAdjustmentForm() {
       </form>
 
       {/* Confirmation dialog */}
-      {showConfirm && currentStock && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-slate-900">Confirm Stock Adjustment</h2>
-            <div className="bg-slate-50 rounded-lg p-4 text-sm flex flex-col gap-1">
-              <div className="text-slate-600"><span className="font-medium">Item:</span> {formData.item}</div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="font-medium text-slate-700">{currentStock.quantity} {currentStock.unit}</span>
-                <span className="text-slate-400">→</span>
-                <span className="font-bold text-slate-900">{adjustedNum} {currentStock.unit}</span>
-                <span className={`text-xs font-semibold ${difference < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  ({difference > 0 ? '+' : ''}{difference} {currentStock.unit})
-                </span>
-              </div>
-              <div className="mt-1 text-slate-500">{formData.reason}</div>
+      {currentStock && (
+        <ConfirmDialog
+          open={showConfirm}
+          title="Confirm Stock Adjustment"
+          impact={
+            <>
+              {formData.item}: <strong>{currentStock.quantity} {currentStock.unit}</strong> → <strong>{adjustedNum} {currentStock.unit}</strong>{' '}
+              (<span className={difference < 0 ? 'text-red-600' : 'text-green-600'}>{difference > 0 ? '+' : ''}{difference} {currentStock.unit}</span>).
               {needsApproval && (
-                <div className="mt-2 text-orange-700 text-xs flex items-center gap-1">
-                  <AlertTriangle size={12} /> Will be sent for approval before posting.
-                </div>
+                <>
+                  {' '}<AlertTriangle size={12} className="inline text-orange-700 -mt-0.5" /> This exceeds the approval threshold and will be sent for manager approval before posting.
+                </>
               )}
-            </div>
-            <div className="flex gap-3">
-              <Button variant="primary" onClick={confirmAdjustment} className="flex-1">
-                {needsApproval ? 'Submit for Approval' : 'Confirm & Post'}
-              </Button>
-              <Button variant="secondary" onClick={() => setShowConfirm(false)} className="flex-1">
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+          confirmLabel={needsApproval ? 'Submit for Approval' : 'Confirm & Post'}
+          isLoading={isLoading}
+          onConfirm={confirmAdjustment}
+          onCancel={() => setShowConfirm(false)}
+        />
       )}
     </div>
   );

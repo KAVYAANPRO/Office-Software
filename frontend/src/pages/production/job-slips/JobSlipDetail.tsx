@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Edit, CheckCircle, Circle, XCircle } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
+import { JOB_SLIP_STATUSES, type JobSlipStatus } from '../../../types/domain';
 
 interface JobSlipData {
   id: string;
@@ -15,7 +16,7 @@ interface JobSlipData {
   targetDate: string;
   chargeBasis: 'Per Piece' | 'Per Metre' | 'Lump Sum';
   agreedRate: number;
-  status: 'Draft' | 'Material Issued' | 'In Process' | 'Ready' | 'Partially Received' | 'Received' | 'Closed' | 'Cancelled';
+  status: JobSlipStatus;
   instructions: string;
   remarks: string;
   materials: { name: string; required: number; issued: number; unit: string }[];
@@ -44,7 +45,7 @@ const mockSlip: JobSlipData = {
   ],
 };
 
-const STATUS_STEPS = ['Draft', 'Material Issued', 'In Process', 'Ready', 'Partially Received', 'Received', 'Closed'] as const;
+const STATUS_STEPS = JOB_SLIP_STATUSES;
 
 export function JobSlipDetail() {
   const navigate = useNavigate();

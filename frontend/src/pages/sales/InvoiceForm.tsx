@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, FileText } from 'lucide-react';
+import { ConfirmDialog } from '../../components/feedback/ConfirmDialog';
 
 interface SOLine {
   id: string;
@@ -54,6 +55,7 @@ export function InvoiceForm() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [so, setSo] = useState<SalesOrder | null>(null);
 
   const [form, setForm] = useState({
@@ -82,6 +84,11 @@ export function InvoiceForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const confirmInvoice = () => {
+    setShowConfirm(false);
     setIsSaving(true);
     // TODO: Replace with API call — POST /api/v1/sales/invoices
     setTimeout(() => {
@@ -89,6 +96,11 @@ export function InvoiceForm() {
       navigate('/sales/invoices');
     }, 900);
   };
+
+  const totalPieces = so?.lines.reduce((s, l) => s + l.qty, 0) ?? 0;
+  const designSummary = so
+    ? Array.from(new Set(so.lines.map(l => l.designSku))).join(', ')
+    : '';
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-slate-400">Loading sales order…</div>;
@@ -231,6 +243,16 @@ export function InvoiceForm() {
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirm Invoice"
+        impact={`Confirm invoice and deduct ${totalPieces} pieces (${designSummary}) from ready stock? Total invoice amount: ${fmtINR(grandTotal)}.`}
+        confirmLabel="Confirm Invoice"
+        isLoading={isSaving}
+        onConfirm={confirmInvoice}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

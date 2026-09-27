@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Printer, CreditCard } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Printer, CreditCard, Ban } from 'lucide-react';
+import { ConfirmDialog } from '../../components/feedback/ConfirmDialog';
+import { Can } from '../../lib/permissions/Can';
+import { appendStockLedger, appendAuditLog } from '../../lib/mock/db';
 
 interface InvoiceLine {
   id: string;
@@ -47,6 +50,8 @@ interface InvoiceData {
   paidAmt: number;
   balanceAmt: number;
   payments: { id: string; date: string; amount: number; mode: string; reference: string }[];
+  status: 'Confirmed' | 'Cancelled';
+  totalQty: number;
 }
 
 // TODO: Replace with API call — GET /api/v1/sales/invoices/:id
@@ -92,6 +97,8 @@ const mockInvoice: InvoiceData = {
   payments: [
     { id: 'p1', date: '22-09-2026', amount: 233415, mode: 'Bank Transfer', reference: 'NEFT/REF2026092201' },
   ],
+  status: 'Confirmed',
+  totalQty: 195,
 };
 
 function inr(n: number) {
@@ -109,6 +116,9 @@ export function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => { setInvoice(mockInvoice); setIsLoading(false); }, 600);
@@ -117,6 +127,33 @@ export function InvoiceDetail() {
 
   if (isLoading) return <div className="flex justify-center p-12"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>;
   if (!invoice) return <div className="p-6 text-slate-500">Invoice not found.</div>;
+
+  const handleCancelInvoice = async () => {
+    if (!cancelReason.trim()) return;
+    setIsCancelling(true);
+    // SAL-08 / BR-09: cancelling reverses the sale's stock movement with a new
+    // reversal entry and keeps the invoice number — it never deletes the original.
+    await appendStockLedger({
+      date: new Date().toLocaleDateString('en-GB').split('/').join('-'),
+      type: 'Reversal',
+      itemName: `${invoice.lines[0]?.design ?? 'Invoice items'} (${invoice.totalQty} pcs)`,
+      quantity: invoice.totalQty,
+      unit: 'pcs',
+      fromLocation: 'Customer (virtual)',
+      toLocation: 'Main Warehouse',
+      reference: invoice.invoiceNo,
+      user: 'Karan (Sales)',
+      remarks: `Invoice cancelled — reason: ${cancelReason.trim()}`,
+    });
+    await appendAuditLog({
+      user: 'Karan (Sales)', module: 'Invoices', action: 'Cancelled', recordId: invoice.invoiceNo,
+      previousValue: 'Confirmed', newValue: `Cancelled — ${cancelReason.trim()}`,
+    });
+    setInvoice(prev => (prev ? { ...prev, status: 'Cancelled' } : prev));
+    setIsCancelling(false);
+    setCancelOpen(false);
+    setCancelReason('');
+  };
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl">
@@ -128,7 +165,9 @@ export function InvoiceDetail() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-slate-900">{invoice.invoiceNo}</h1>
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${payStatusCls[invoice.paymentStatus]}`}>{invoice.paymentStatus}</span>
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${invoice.status === 'Cancelled' ? 'bg-red-100 text-red-700' : payStatusCls[invoice.paymentStatus]}`}>
+              {invoice.status === 'Cancelled' ? 'Cancelled' : invoice.paymentStatus}
+            </span>
             <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
               {invoice.isInterstate ? 'Interstate (IGST)' : 'Intrastate (CGST+SGST)'}
             </span>
@@ -136,7 +175,7 @@ export function InvoiceDetail() {
           <p className="text-sm text-slate-500 mt-0.5">{invoice.customer} · {invoice.date} · SO: {invoice.soNo}</p>
         </div>
         <div className="flex gap-2">
-          {invoice.paymentStatus !== 'Paid' && (
+          {invoice.status === 'Confirmed' && invoice.paymentStatus !== 'Paid' && (
             <button onClick={() => navigate(`/sales/payments/new?invoiceId=${invoice.id}`)}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700">
               <CreditCard size={15} /> Record Payment
@@ -145,8 +184,50 @@ export function InvoiceDetail() {
           <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50">
             <Printer size={15} /> Print
           </button>
+          {invoice.status === 'Confirmed' && (
+            <Can perm="invoices.cancel">
+              <button onClick={() => setCancelOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50">
+                <Ban size={15} /> Cancel Invoice
+              </button>
+            </Can>
+          )}
         </div>
       </div>
+
+      {invoice.status === 'Cancelled' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800">
+          This invoice was cancelled. Its stock effect has been reversed with a new ledger entry — the original invoice and its number are kept, never deleted (BR-09).
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={cancelOpen}
+        danger
+        title="Cancel Invoice"
+        confirmLabel="Cancel Invoice"
+        isLoading={isCancelling}
+        confirmDisabled={!cancelReason.trim()}
+        onCancel={() => { setCancelOpen(false); setCancelReason(''); }}
+        onConfirm={handleCancelInvoice}
+        impact={
+          <div className="flex flex-col gap-2">
+            <p>
+              Cancelling <strong>{invoice.invoiceNo}</strong> will reverse the stock deduction —{' '}
+              <strong>{invoice.totalQty} pcs</strong> return to Main Warehouse — and mark the invoice Cancelled.
+              The invoice number is kept and the original record is never deleted.
+            </p>
+            <label className="text-xs font-medium text-slate-600">Reason (required)</label>
+            <textarea
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              rows={2}
+              placeholder="e.g. Customer returned full order"
+              className="w-full text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+          </div>
+        }
+      />
 
       {/* Tax invoice card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

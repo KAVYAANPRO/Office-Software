@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
 
 interface MaterialLine {
   id: string;
@@ -51,6 +52,7 @@ export function ReconciliationDetail() {
   const [isLoading, setIsLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [writeOffTarget, setWriteOffTarget] = useState<string | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -64,7 +66,10 @@ export function ReconciliationDetail() {
   const unresolvedMaterials = data.materials.filter(m => m.status === 'Unresolved');
   const canClose = unresolvedMaterials.length === 0 || unresolvedMaterials.every(m => reasons[m.id]?.trim());
 
-  const handleWriteOff = (materialId: string) => {
+  const confirmWriteOff = () => {
+    const materialId = writeOffTarget;
+    setWriteOffTarget(null);
+    if (!materialId) return;
     setData(d => d ? {
       ...d,
       materials: d.materials.map(m =>
@@ -72,6 +77,8 @@ export function ReconciliationDetail() {
       ),
     } : d);
   };
+
+  const writeOffMaterial = data.materials.find(m => m.id === writeOffTarget);
 
   const handleClose = async () => {
     setShowCloseConfirm(false);
@@ -181,7 +188,7 @@ export function ReconciliationDetail() {
                     />
                     <Button
                       variant="danger"
-                      onClick={() => handleWriteOff(m.id)}
+                      onClick={() => setWriteOffTarget(m.id)}
                       disabled={!reasons[m.id]?.trim()}
                     >
                       Write Off
@@ -218,19 +225,32 @@ export function ReconciliationDetail() {
         </Button>
       </div>
 
+      {/* Write-off confirmation */}
+      <ConfirmDialog
+        open={Boolean(writeOffTarget) && Boolean(writeOffMaterial)}
+        title="Write Off Shortage"
+        impact={
+          writeOffMaterial
+            ? `Write off ${writeOffMaterial.shortage} ${writeOffMaterial.unit} shortage of ${writeOffMaterial.material}? This permanently removes the shortage from stock records with reason: "${reasons[writeOffMaterial.id] || 'Written off'}". This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Write Off"
+        danger
+        onConfirm={confirmWriteOff}
+        onCancel={() => setWriteOffTarget(null)}
+      />
+
       {/* Close confirmation */}
-      {showCloseConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-slate-900">Close Job {data.jobSlip}?</h2>
-            <p className="text-sm text-slate-500">This will mark the job as Closed. All material custody will be cleared. This action cannot be undone.</p>
-            <div className="flex gap-3">
-              <Button variant="primary" onClick={handleClose} className="flex-1">Close Job</Button>
-              <Button variant="secondary" onClick={() => setShowCloseConfirm(false)} className="flex-1">Cancel</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showCloseConfirm}
+        title={`Close Job ${data.jobSlip}?`}
+        impact="Closing this job will lock and finalize it: all material custody will be cleared and no further material, receiving, or reconciliation entries can be made against it. This action cannot be undone."
+        confirmLabel="Close Job"
+        danger
+        isLoading={isClosing}
+        onConfirm={handleClose}
+        onCancel={() => setShowCloseConfirm(false)}
+      />
     </div>
   );
 }

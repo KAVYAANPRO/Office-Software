@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../components/tables/DataTable';
 import { Lock } from 'lucide-react';
+import { Can } from '../../lib/permissions/Can';
 
 interface CostSheet {
   id: string;
@@ -98,16 +99,25 @@ export function CostSheetList() {
           <p className="text-sm text-slate-500">Provisional and final cost sheets per job slip. Visible to authorised users only.</p>
         </div>
       </div>
-      <DataTable
-        columns={columns}
-        data={filtered}
-        isLoading={isLoading}
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search by job slip or design..."
-        emptyMessage="No cost sheets found."
-        onRowClick={(row: CostSheet) => navigate(`/costing/${row.id}`)}
-      />
+      <Can
+        perm="costing.view"
+        fallback={
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">
+            You don't have permission to view costing data.
+          </div>
+        }
+      >
+        <DataTable
+          columns={columns}
+          data={filtered}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search by job slip or design..."
+          emptyMessage="No cost sheets found."
+          onRowClick={(row: CostSheet) => navigate(`/costing/${row.id}`)}
+        />
+      </Can>
     </div>
   );
 }

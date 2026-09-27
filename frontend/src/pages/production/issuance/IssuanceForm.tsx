@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ArrowLeft, Box } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
 
 interface IssuanceItem {
   id: string;
@@ -20,7 +21,8 @@ export function IssuanceForm() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [showConfirm, setShowConfirm] = useState(false);
+
   const [jobSlipDetails, setJobSlipDetails] = useState({
     slipNumber: '',
     factoryName: '',
@@ -52,16 +54,26 @@ export function IssuanceForm() {
     ));
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const confirmSubmit = async () => {
+    setShowConfirm(false);
     setIsSaving(true);
-    
+
     // Mock save
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     setIsSaving(false);
     navigate('/production/issuance');
   };
+
+  const issuanceSummary = items
+    .filter(item => item.issuingQty > 0)
+    .map(item => `${item.issuingQty} ${item.uom} of ${item.materialName}`)
+    .join(', ');
 
   if (isLoading) {
     return (
@@ -160,6 +172,16 @@ export function IssuanceForm() {
           </Button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirm Material Issuance"
+        impact={`Issue ${issuanceSummary || 'the entered quantities'} from Warehouse to ${jobSlipDetails.factoryName} custody?`}
+        confirmLabel="Confirm Issuance"
+        isLoading={isSaving}
+        onConfirm={confirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

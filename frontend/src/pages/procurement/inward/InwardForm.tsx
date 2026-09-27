@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
 
 interface InwardItem {
   id: string;
@@ -20,7 +21,8 @@ export function InwardForm() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [showConfirm, setShowConfirm] = useState(false);
+
   const [poDetails, setPoDetails] = useState({
     poNumber: '',
     supplierName: '',
@@ -50,16 +52,26 @@ export function InwardForm() {
     ));
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const confirmSubmit = async () => {
+    setShowConfirm(false);
     setIsSaving(true);
-    
+
     // Mock save
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     setIsSaving(false);
     navigate('/procurement/inward');
   };
+
+  const receivingSummary = items
+    .filter(item => item.receivingQty > 0)
+    .map(item => `${item.receivingQty} ${item.uom} of ${item.materialName}`)
+    .join(', ');
 
   if (isLoading) {
     return (
@@ -149,6 +161,16 @@ export function InwardForm() {
           </Button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirm Inward"
+        impact={`Confirm inward and add ${receivingSummary || 'the entered quantities'} to raw material stock at Main Warehouse? Lot numbers will be generated for traceability.`}
+        confirmLabel="Confirm Inward"
+        isLoading={isSaving}
+        onConfirm={confirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

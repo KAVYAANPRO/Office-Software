@@ -5,6 +5,7 @@ import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ArrowLeft, Calculator } from 'lucide-react';
+import { JOB_SLIP_STATUSES } from '../../../types/domain';
 
 interface BOMItem {
   materialName: string;
@@ -36,7 +37,7 @@ export function JobSlipForm() {
     factoryId: '',
     batchQty: '',
     targetDate: '',
-    status: 'Draft'
+    status: 'Created' as string,
   });
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export function JobSlipForm() {
           factoryId: 'fac-1',
           batchQty: '500',
           targetDate: '2024-10-25',
-          status: 'In Progress'
+          status: 'In Process',
         });
         setIsLoading(false);
       }, 600);
@@ -166,18 +167,17 @@ export function JobSlipForm() {
             
             <div className="input-group">
               <label className="input-label">Status</label>
-              <select 
-                name="status" 
-                value={formData.status} 
+              <select
+                name="status"
+                value={formData.status}
                 onChange={handleChange}
+                disabled={!isEditing}
                 className="input-field"
               >
-                <option value="Draft">Draft</option>
-                <option value="Issued">Issued</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Completed">Completed</option>
+                {JOB_SLIP_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 <option value="Cancelled">Cancelled</option>
               </select>
+              {!isEditing && <p className="text-xs text-muted mt-1">New job slips always start as "Created"; status then advances automatically (JOB-03).</p>}
             </div>
           </div>
         </Card>

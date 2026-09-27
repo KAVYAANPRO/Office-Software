@@ -1,52 +1,50 @@
 import { useState, useEffect } from 'react';
 import { Info } from 'lucide-react';
+import { listStockLedger } from '../../../lib/mock/db';
+import type { StockLedgerEntry, StockMovementType } from '../../../types/domain';
 
-interface LedgerEntry {
-  id: string;
-  date: string;
-  movementType: 'Inward' | 'Issue' | 'Return' | 'Adjustment' | 'Receiving' | 'Reversal';
-  item: string;
-  lot: string;
-  quantity: number;
-  unit: string;
-  reference: string;
-  user: string;
-  source: string;
-  destination: string;
-  remarks: string;
-}
-
-// TODO: Replace with API call — GET /api/v1/stock/ledger
-const mockLedger: LedgerEntry[] = [
-  { id: 'TXN-2024-001', date: '24-09-2026', movementType: 'Inward', item: 'Cotton Fabric — Navy Blue', lot: 'LOT-001', quantity: 1000, unit: 'm', reference: 'INW-001', user: 'Admin', source: 'Supplier', destination: 'Main Warehouse', remarks: 'Alpha Fabrics PO-001' },
-  { id: 'TXN-2024-002', date: '25-09-2026', movementType: 'Issue', item: 'Cotton Fabric — Navy Blue', lot: 'LOT-001', quantity: -200, unit: 'm', reference: 'JS-001', user: 'Admin', source: 'Main Warehouse', destination: 'Krishna Dyeing Works', remarks: 'Job slip JS-001' },
-  { id: 'TXN-2024-003', date: '25-09-2026', movementType: 'Inward', item: 'Lining Cloth — Black', lot: 'LOT-003', quantity: 320, unit: 'm', reference: 'INW-002', user: 'Admin', source: 'Supplier', destination: 'Main Warehouse', remarks: 'Zeta Dyeing PO-002' },
-  { id: 'TXN-2024-004', date: '26-09-2026', movementType: 'Adjustment', item: 'Cotton Fabric — Navy Blue', lot: 'LOT-001', quantity: -50, unit: 'm', reference: 'ADJ-001', user: 'Admin', source: 'Main Warehouse', destination: '—', remarks: 'Physical count correction' },
-];
-
-const movementColors: Record<LedgerEntry['movementType'], string> = {
+const movementColors: Record<StockMovementType, string> = {
+  Opening: 'bg-slate-100 text-slate-800',
   Inward: 'bg-green-100 text-green-800',
   Issue: 'bg-orange-100 text-orange-800',
-  Return: 'bg-blue-100 text-blue-800',
-  Adjustment: 'bg-purple-100 text-purple-800',
-  Receiving: 'bg-teal-100 text-teal-800',
+  'Return-from-factory': 'bg-blue-100 text-blue-800',
+  Consumption: 'bg-indigo-100 text-indigo-800',
+  'Process-output': 'bg-cyan-100 text-cyan-800',
+  'Production-receipt': 'bg-teal-100 text-teal-800',
+  Rejection: 'bg-rose-100 text-rose-800',
+  'Shortage-write-off': 'bg-red-100 text-red-800',
+  'Adjustment-in': 'bg-purple-100 text-purple-800',
+  'Adjustment-out': 'bg-purple-100 text-purple-800',
+  Sale: 'bg-emerald-100 text-emerald-800',
+  'Sales-return': 'bg-blue-100 text-blue-800',
+  'Purchase-return': 'bg-orange-100 text-orange-800',
+  Transfer: 'bg-sky-100 text-sky-800',
   Reversal: 'bg-red-100 text-red-800',
 };
 
+/** STK-02 — movements out of a location are shown as negative for readability. */
+const OUTBOUND: Partial<Record<StockMovementType, boolean>> = {
+  Issue: true, Consumption: true, Rejection: true, 'Shortage-write-off': true,
+  'Adjustment-out': true, Sale: true, 'Purchase-return': true, Transfer: true,
+};
+
 export function StockLedger() {
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [entries, setEntries] = useState<StockLedgerEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    const t = setTimeout(() => { setEntries(mockLedger); setIsLoading(false); }, 700);
-    return () => clearTimeout(t);
+    let active = true;
+    listStockLedger().then(rows => {
+      if (active) { setEntries(rows); setIsLoading(false); }
+    });
+    return () => { active = false; };
   }, []);
 
   const filtered = entries.filter(e =>
-    e.item.toLowerCase().includes(search.toLowerCase()) ||
+    e.itemName.toLowerCase().includes(search.toLowerCase()) ||
     e.reference.toLowerCase().includes(search.toLowerCase()) ||
-    e.lot.toLowerCase().includes(search.toLowerCase())
+    (e.lotId ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -103,32 +101,35 @@ export function StockLedger() {
                   <td colSpan={10} className="px-4 py-12 text-center text-slate-400 text-sm">No ledger entries found.</td>
                 </tr>
               )
-              : filtered.map(row => (
+              : filtered.map(row => {
+                  const outbound = OUTBOUND[row.type];
+                  return (
                   <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-3 font-mono text-xs text-slate-600 whitespace-nowrap">{row.id}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-600 whitespace-nowrap">{row.txnId}</td>
                     <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{row.date}</td>
                     <td className="px-3 py-3 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${movementColors[row.movementType]}`}>
-                        {row.movementType}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${movementColors[row.type]}`}>
+                        {row.type}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-slate-900 max-w-[180px]">
-                      <div className="truncate">{row.item}</div>
+                      <div className="truncate">{row.itemName}</div>
                     </td>
-                    <td className="px-3 py-3 font-mono text-xs text-slate-600 whitespace-nowrap">{row.lot}</td>
-                    <td className={`px-3 py-3 font-semibold whitespace-nowrap ${row.quantity > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                      {row.quantity > 0 ? '+' : ''}{row.quantity.toLocaleString('en-IN')} {row.unit}
+                    <td className="px-3 py-3 font-mono text-xs text-slate-600 whitespace-nowrap">{row.lotId ?? '—'}</td>
+                    <td className={`px-3 py-3 font-semibold whitespace-nowrap ${outbound ? 'text-red-600' : 'text-green-700'}`}>
+                      {outbound ? '-' : '+'}{row.quantity.toLocaleString('en-IN')} {row.unit}
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-blue-600 whitespace-nowrap">{row.reference}</td>
                     <td className="px-3 py-3 text-slate-600 text-xs whitespace-nowrap">
-                      {row.source} → {row.destination}
+                      {row.fromLocation} → {row.toLocation}
                     </td>
                     <td className="px-3 py-3 text-slate-500 whitespace-nowrap">{row.user}</td>
                     <td className="px-3 py-3 text-slate-500 text-xs max-w-[140px]">
-                      <div className="truncate">{row.remarks}</div>
+                      <div className="truncate">{row.remarks ?? '—'}</div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
           </tbody>
         </table>
       </div>

@@ -1,43 +1,8 @@
 import { useState } from 'react';
-import { Search, ChevronRight, Package, Scissors, Factory, Truck, ShoppingCart, CheckCircle, Circle } from 'lucide-react';
+import { Search, ChevronRight, Package, Scissors, Factory, Truck, ShoppingCart } from 'lucide-react';
+import { traceByReference, type TraceNode, seedJobSlip, seedLot, seedSalesOrder } from '../../lib/mock/db';
 
-interface TraceNode {
-  stage: string;
-  refNo: string;
-  date: string;
-  details: string;
-  status?: string;
-  icon: 'purchase' | 'inward' | 'stock' | 'design' | 'job' | 'receive' | 'sale';
-}
-
-// TODO: Replace with API call — GET /api/v1/traceability?query=...
-const mockResults: Record<string, { summary: string; nodes: TraceNode[] }> = {
-  'JS-24-099': {
-    summary: 'DR-1024 — Summer Floral Dress | Super Stitchers | 290 pcs accepted',
-    nodes: [
-      { stage: 'Purchase Order', refNo: 'PO-24-048', date: '10-07-2026', details: 'Cotton Fabric (Navy Blue) · 800 m · ₹70/m · Rajesh Textiles', icon: 'purchase', status: 'Received' },
-      { stage: 'Material Inward', refNo: 'INW-24-031', date: '15-07-2026', details: '800 m received · Lot L-2026-031 · Main Warehouse', icon: 'inward', status: 'Posted' },
-      { stage: 'Raw Stock', refNo: 'L-2026-031', date: '15-07-2026', details: 'Cotton Fabric Navy Blue · 800 m in Main Warehouse', icon: 'stock', status: 'Issued' },
-      { stage: 'Production Requirement', refNo: 'PR-24-022', date: '01-09-2026', details: 'DR-1024 · 300 pcs planned · Material shortfall checked', icon: 'design', status: 'Approved' },
-      { stage: 'Job Slip Issued', refNo: 'JS-24-099', date: '03-09-2026', details: 'Super Stitchers · 300 pcs · Material issued 05-09-2026', icon: 'job', status: 'Received' },
-      { stage: 'Material Issuance', refNo: 'ISS-24-099', date: '05-09-2026', details: 'Cotton Fabric 800 m + Lining 348 m + Buttons 2700 pcs issued', icon: 'inward', status: 'Fulfilled' },
-      { stage: 'Finished Goods Received', refNo: 'RCV-24-099', date: '02-10-2026', details: '300 sent · 290 accepted · 7 rejected · 3 damaged → Quarantine', icon: 'receive', status: 'Closed' },
-      { stage: 'Ready Stock', refNo: 'RS-DR-1024-NB', date: '02-10-2026', details: '290 pcs → Main Warehouse · S/M/L/XL variants', icon: 'stock', status: 'Available' },
-      { stage: 'Sales Order', refNo: 'SO-26-001', date: '20-09-2026', details: 'Fab India Retail · 195 pcs reserved', icon: 'sale', status: 'Invoiced' },
-      { stage: 'Invoice', refNo: 'INV-26-010', date: '20-09-2026', details: '195 pcs · ₹2,33,415 · Paid', icon: 'sale', status: 'Paid' },
-    ],
-  },
-  'LOT-L-2026-031': {
-    summary: 'Cotton Fabric Navy Blue · Lot L-2026-031 · Rajesh Textiles · 800 m',
-    nodes: [
-      { stage: 'Purchase Order', refNo: 'PO-24-048', date: '10-07-2026', details: 'Rajesh Textiles · 800 m @ ₹70/m', icon: 'purchase', status: 'Received' },
-      { stage: 'Material Inward', refNo: 'INW-24-031', date: '15-07-2026', details: 'Lot L-2026-031 created · Main Warehouse', icon: 'inward', status: 'Posted' },
-      { stage: 'Issued to Job', refNo: 'JS-24-099', date: '05-09-2026', details: '800 m issued to Super Stitchers for DR-1024', icon: 'job', status: 'Consumed' },
-    ],
-  },
-};
-
-const iconMap = {
+const iconMap: Record<TraceNode['icon'], React.ReactNode> = {
   purchase: <ShoppingCart size={14} />,
   inward: <Package size={14} />,
   stock: <Package size={14} />,
@@ -63,20 +28,15 @@ export function TraceabilitySearch() {
   const [isLoading, setIsLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!query.trim()) return;
     setIsLoading(true);
     setNotFound(false);
     setResult(null);
-    setTimeout(() => {
-      const key = query.toUpperCase().includes('LOT') || query.toUpperCase().includes('L-2026')
-        ? 'LOT-L-2026-031'
-        : 'JS-24-099';
-      const found = mockResults[key] || null;
-      setResult(found);
-      setNotFound(!found);
-      setIsLoading(false);
-    }, 700);
+    const found = await traceByReference(query);
+    setResult(found);
+    setNotFound(!found);
+    setIsLoading(false);
   };
 
   return (
@@ -86,7 +46,6 @@ export function TraceabilitySearch() {
         <p className="text-sm text-slate-500">Trace the complete lifecycle of a job slip, material lot, design, or sales order — from purchase to delivery.</p>
       </div>
 
-      {/* Search box */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Search by reference</div>
         <div className="flex gap-3">
@@ -94,7 +53,7 @@ export function TraceabilitySearch() {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Job Slip (JS-24-099), Lot (L-2026-031), SO (SO-26-001)…"
+              placeholder={`Job Slip (${seedJobSlip.id}), Lot (${seedLot.id}), SO (${seedSalesOrder.id})…`}
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -110,10 +69,10 @@ export function TraceabilitySearch() {
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {['JS-24-099', 'L-2026-031', 'SO-26-001'].map(ex => (
+          {[seedJobSlip.id, seedLot.id, seedSalesOrder.id].map(ex => (
             <button
               key={ex}
-              onClick={() => { setQuery(ex); }}
+              onClick={() => setQuery(ex)}
               className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 font-mono"
             >
               {ex}
@@ -141,7 +100,6 @@ export function TraceabilitySearch() {
             {result.summary}
           </div>
 
-          {/* Timeline */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
