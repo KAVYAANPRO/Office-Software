@@ -5,51 +5,53 @@ import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ArrowLeft } from 'lucide-react';
+import { masterCrudApi } from '../../../lib/api/masterCrud';
+
+interface ProcessingType {
+  _id: string;
+  name: string;
+  isActive: boolean;
+}
+
+const api = masterCrudApi<ProcessingType>('/processing-types');
 
 export function ProcessForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditing = Boolean(id);
 
+  const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(isEditing);
   const [isSaving, setIsSaving] = useState(false);
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    defaultCost: '',
-    status: 'Active'
-  });
+  const [nameError, setNameError] = useState('');
+  const [apiError, setApiError] = useState('');
 
   useEffect(() => {
-    if (isEditing) {
-      // Mock fetch
-      const timer = setTimeout(() => {
-        setFormData({
-          name: 'Stitching',
-          description: 'Garment assembly',
-          defaultCost: '120',
-          status: 'Active'
-        });
-        setIsLoading(false);
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [isEditing]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+    if (!isEditing) return;
+    api.get(id!)
+      .then(r => setName(r.name))
+      .catch(() => setApiError('Failed to load process.'))
+      .finally(() => setIsLoading(false));
+  }, [isEditing, id]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!name.trim()) { setNameError('Process name is required.'); return; }
+    setNameError('');
+    setApiError('');
     setIsSaving(true);
-    
-    // Mock save
-    await new Promise(resolve => setTimeout(resolve, 600));
-    
-    setIsSaving(false);
-    navigate('/masters/processes');
+    try {
+      if (isEditing) {
+        await api.update(id!, { name: name.trim() });
+      } else {
+        await api.create({ name: name.trim() });
+      }
+      navigate('/masters/processes');
+    } catch {
+      setApiError('Failed to save. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoading) {
@@ -67,61 +69,30 @@ export function ProcessForm() {
           <ArrowLeft size={20} />
         </button>
         <div>
-          <h1 className="text-2xl font-bold">{isEditing ? 'Edit Process' : 'New Process'}</h1>
-          <p className="text-muted">Define processing steps for job slips.</p>
+          <h1 className="text-xl md:text-2xl font-bold">{isEditing ? 'Edit Process' : 'New Process'}</h1>
+          <p className="text-muted">Define a processing type name for use in job slips.</p>
         </div>
       </div>
 
+      {apiError && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-4 py-3">{apiError}</p>}
+
       <form onSubmit={handleSubmit}>
         <Card className="flex flex-col gap-4">
-          <Input 
-            label="Process Name" 
-            name="name" 
-            value={formData.name} 
-            onChange={handleChange} 
-            placeholder="e.g. Stitching, Cutting"
-            required 
+          <Input
+            label="Process Name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Stitching, Cutting, Embroidery"
+            error={nameError}
+            required
           />
-          
-          <Input 
-            label="Description" 
-            name="description" 
-            value={formData.description} 
-            onChange={handleChange} 
-            placeholder="Optional details about this process"
-          />
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input 
-              label="Default Cost / Rate (₹)" 
-              name="defaultCost" 
-              type="number"
-              value={formData.defaultCost} 
-              onChange={handleChange} 
-              placeholder="e.g. 15"
-              required 
-            />
-            
-            <div className="input-group">
-              <label className="input-label">Status</label>
-              <select 
-                name="status" 
-                value={formData.status} 
-                onChange={handleChange}
-                className="input-field"
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
-          </div>
 
-          <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-[var(--color-border)]">
-            <Button type="button" variant="secondary" onClick={() => navigate('/masters/processes')}>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 mt-4 pt-4 border-t border-[var(--color-border)]">
+            <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={() => navigate('/masters/processes')}>
               Cancel
             </Button>
-            <Button type="submit" isLoading={isSaving}>
-              Save Process
+            <Button className="w-full sm:w-auto" type="submit" isLoading={isSaving}>
+              {isEditing ? 'Update Process' : 'Save Process'}
             </Button>
           </div>
         </Card>

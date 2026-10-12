@@ -3,66 +3,56 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { customersApi, type CustomerRecord } from '../../../lib/api/customers';
 
-interface Customer {
-  id: string;
-  name: string;
-  businessName: string;
-  mobile: string;
-  gstin: string;
-  paymentTerms: string;
-  status: 'Active' | 'Inactive';
-}
-
-const mockCustomers: Customer[] = [
-  { id: '1', name: 'Rahul Mehta', businessName: 'Mehta Fashion House', mobile: '9876543210', gstin: '27AADCM2230M1Z2', paymentTerms: 'Net 30', status: 'Active' },
-  { id: '2', name: 'Sunita Agarwal', businessName: 'Agarwal Garments', mobile: '9876543211', gstin: '27BBACG1230M1Z3', paymentTerms: 'Advance', status: 'Active' },
-  { id: '3', name: 'Priya Shah', businessName: 'Shah Collections', mobile: '9876543212', gstin: '', paymentTerms: 'Net 15', status: 'Active' },
-];
+type CustomerRow = CustomerRecord & { id: string };
 
 export function CustomerList() {
   const navigate = useNavigate();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => { setCustomers(mockCustomers); setIsLoading(false); }, 700);
-    return () => clearTimeout(timer);
+    customersApi.list()
+      .then(list => setCustomers(list.map(c => ({ ...c, id: c._id }))))
+      .catch(() => setLoadError('Could not load customers from the server.'))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.businessName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.mobile.includes(searchTerm) ||
-    c.gstin.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.businessName ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.mobile ?? '').includes(searchTerm) ||
+    (c.gstin ?? '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const columns = [
     {
       header: 'Customer',
-      accessor: (row: Customer) => (
+      accessor: (row: CustomerRow) => (
         <div>
           <div className="font-medium">{row.name}</div>
           <div className="text-xs text-[var(--color-text-muted)]">{row.businessName}</div>
         </div>
       ),
     },
-    { header: 'Mobile', accessor: 'mobile' as keyof Customer },
+    { header: 'Mobile', accessor: (row: CustomerRow) => row.mobile || '—' },
     {
       header: 'GSTIN',
-      accessor: (row: Customer) => (
+      accessor: (row: CustomerRow) => (
         <span className="font-mono text-xs">{row.gstin || '—'}</span>
       ),
     },
-    { header: 'Payment Terms', accessor: 'paymentTerms' as keyof Customer },
+    { header: 'Payment Terms', accessor: (row: CustomerRow) => row.paymentTerms || '—' },
     {
       header: 'Status',
-      accessor: (row: Customer) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+      accessor: (row: CustomerRow) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+          row.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
         }`}>
-          {row.status}
+          {row.isActive ? 'Active' : 'Inactive'}
         </span>
       ),
     },
@@ -70,15 +60,16 @@ export function CustomerList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Customers</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Customers</h1>
           <p className="text-[var(--color-text-muted)]">Manage customer accounts and billing information.</p>
         </div>
-        <Button onClick={() => navigate('/masters/customers/new')}>
+        <Button className="w-full sm:w-auto" onClick={() => navigate('/masters/customers/new')}>
           <Plus size={16} /> Add Customer
         </Button>
       </div>
+      {loadError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700">{loadError}</div>}
       <DataTable
         columns={columns}
         data={filtered}

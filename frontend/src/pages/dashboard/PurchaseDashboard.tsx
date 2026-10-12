@@ -1,124 +1,84 @@
-import { useState, useEffect } from 'react';
-import { Button } from '../../components/ui/Button';
+import { useNavigate } from 'react-router-dom';
 import { KPICard } from '../../components/ui/KPICard';
 import { Card, CardHeader } from '../../components/ui/Card';
-import {
-  ShoppingCart,
-  Truck,
-  Package,
-  IndianRupee,
-} from 'lucide-react';
-
-interface RecentPurchase {
-  id: string;
-  supplier: string;
-  material: string;
-  amount: number;
-  date: string;
-}
-
-interface PendingInward {
-  id: string;
-  supplier: string;
-  material: string;
-  qty: string;
-  expected: string;
-}
-
-interface SupplierPurchase {
-  supplier: string;
-  amount: number;
-}
-
-const RECENT_PURCHASES: RecentPurchase[] = [
-  { id: 'PO-24-118', supplier: 'Shree Textiles', material: 'Cotton Fabric', amount: 85000, date: '25-09-2026' },
-  { id: 'PO-24-117', supplier: 'Anand Yarns', material: 'Poly Thread', amount: 32000, date: '23-09-2026' },
-  { id: 'PO-24-116', supplier: 'Mahalaxmi Prints', material: 'Printed Fabric', amount: 128000, date: '20-09-2026' },
-  { id: 'PO-24-115', supplier: 'Shree Textiles', material: 'Cotton Fabric', amount: 46000, date: '18-09-2026' },
-];
-
-const PENDING_INWARD: PendingInward[] = [
-  { id: 'PO-24-118', supplier: 'Shree Textiles', material: 'Cotton Fabric', qty: '500 m', expected: '29-09-2026' },
-  { id: 'PO-24-119', supplier: 'Anand Yarns', material: 'Poly Thread', qty: '200 kg', expected: '30-09-2026' },
-  { id: 'PO-24-120', supplier: 'Om Dyeing Works', material: 'Dyed Fabric', qty: '350 m', expected: '02-10-2026' },
-];
-
-const SUPPLIER_PURCHASES: SupplierPurchase[] = [
-  { supplier: 'Shree Textiles', amount: 452000 },
-  { supplier: 'Mahalaxmi Prints', amount: 318000 },
-  { supplier: 'Anand Yarns', amount: 164000 },
-  { supplier: 'Om Dyeing Works', amount: 97000 },
-];
+import { ShoppingCart, Truck, Package, IndianRupee } from 'lucide-react';
+import { dashboardsApi, fmtDate, fmtUnits } from '../../lib/api/insights';
+import { formatINR } from '../../lib/format/money';
+import { RestrictedValue } from '../../lib/permissions/Can';
+import { RangeFilter, useRange, useDashboardData, ErrorBanner, EmptyNote, ListSkeleton, trendOf, TREND_LABEL, PERIOD_LABEL } from './dashboardKit';
+import { SmartInsightsPanel } from './SmartInsightsPanel';
+import { STAGGER_CHILDREN } from '../pageKit';
+import { FadeIn } from '../../components/motion';
 
 export function PurchaseDashboard() {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const navigate = useNavigate();
+  const range = useRange('monthly');
+  const { data, isLoading, error } = useDashboardData(() => dashboardsApi.purchase(range.params), [range.key]);
+  const period = PERIOD_LABEL[range.range];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end sm:flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Purchase Dashboard</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Purchase Dashboard</h1>
           <p className="text-muted">Manage supplier purchases and track pending inward.</p>
         </div>
+        <RangeFilter state={range} />
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <ErrorBanner message={error} />
+
+      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 ${STAGGER_CHILDREN}`}>
         <KPICard
-          title="Total Purchases (Month)"
-          value={`₹ ${(1031000).toLocaleString('en-IN')}`}
+          title={`Purchases (${period})`}
+          value={data ? (data.totalPurchases !== undefined ? formatINR(data.totalPurchases) : `${data.purchaseCount} POs`) : '—'}
           icon={<IndianRupee size={20} />}
           isLoading={isLoading}
-          trend={{ value: '8%', isPositive: true, label: 'vs last month' }}
+          trend={data?.totalPurchases !== undefined ? trendOf(data.totalPurchasesTrendPct, TREND_LABEL[range.range]) : undefined}
+          onClick={() => navigate('/procurement/purchases')}
         />
         <KPICard
           title="Pending Inward"
-          value={PENDING_INWARD.length}
+          value={data ? data.pendingInward : '—'}
           icon={<Truck size={20} />}
           isLoading={isLoading}
+          onClick={() => navigate('/procurement/inward')}
         />
         <KPICard
-          title="Material Purchased"
-          value="1,050 m"
+          title={`Material Purchased (${period})`}
+          value={data ? fmtUnits(data.materialPurchasedByUnit) : '—'}
           icon={<Package size={20} />}
           isLoading={isLoading}
-          trend={{ value: '120 m', isPositive: true, label: 'vs last week' }}
         />
         <KPICard
           title="Open Purchase Orders"
-          value="12"
+          value={data ? data.openPurchaseOrders : '—'}
           icon={<ShoppingCart size={20} />}
           isLoading={isLoading}
+          onClick={() => navigate('/procurement/purchases')}
         />
       </div>
 
-      {/* Sections Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <SmartInsightsPanel />
+
+      <FadeIn delay={0.12} className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <Card className="min-h-[300px]">
           <CardHeader title="Recent Purchases" />
-          {isLoading ? (
-            <div className="animate-pulse flex flex-col gap-4 mt-4">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="h-12 bg-[var(--color-border)] rounded w-full"></div>
-              ))}
-            </div>
+          {isLoading ? <ListSkeleton rows={4} /> : !data || data.recentPurchases.length === 0 ? (
+            <EmptyNote>No purchases yet.</EmptyNote>
           ) : (
             <div className="flex flex-col gap-3">
-              {RECENT_PURCHASES.map(p => (
-                <div key={p.id} className="flex justify-between items-center border-b border-[var(--color-border)] pb-3 last:border-0 last:pb-0">
-                  <div>
-                    <p className="text-sm font-medium">{p.id} · {p.supplier}</p>
-                    <p className="text-xs text-muted">{p.material} · {p.date}</p>
+              {data.recentPurchases.map(p => (
+                <button key={p.id} type="button" onClick={() => navigate(`/procurement/purchases/${p.id}`)}
+                  className="text-left flex justify-between items-center gap-3 border-b border-[var(--color-border)] pb-3 last:border-0 last:pb-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium break-words">{p.docNo} · {p.supplierName}</p>
+                    <p className="text-xs text-muted break-words">{p.material} · {fmtDate(p.docDate)} · {p.status.replace(/_/g, ' ').toLowerCase()}</p>
                   </div>
-                  <p className="text-sm font-semibold">₹ {p.amount.toLocaleString('en-IN')}</p>
-                </div>
+                  <p className="text-sm font-semibold shrink-0 whitespace-nowrap">
+                    <RestrictedValue perm="purchases.rate.view">{p.amount !== undefined ? formatINR(p.amount) : ''}</RestrictedValue>
+                  </p>
+                </button>
               ))}
             </div>
           )}
@@ -126,42 +86,39 @@ export function PurchaseDashboard() {
 
         <Card className="min-h-[300px]">
           <CardHeader title="Pending Inward" />
-          {isLoading ? (
-            <div className="animate-pulse flex flex-col gap-4 mt-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-12 bg-[var(--color-border)] rounded w-full"></div>
-              ))}
-            </div>
+          {isLoading ? <ListSkeleton /> : !data || data.pendingInwardList.length === 0 ? (
+            <EmptyNote>Nothing waiting to be received.</EmptyNote>
           ) : (
             <div className="flex flex-col gap-3">
-              {PENDING_INWARD.map(p => (
-                <div key={p.id} className="bg-yellow-50 border border-yellow-100 p-3 rounded-md flex justify-between items-center">
-                  <div>
-                    <p className="text-sm font-semibold text-yellow-800">{p.id} · {p.supplier}</p>
-                    <p className="text-xs text-yellow-600">{p.material} · {p.qty} · Expected {p.expected}</p>
+              {data.pendingInwardList.map(p => (
+                <div key={p.id} className="bg-yellow-50 border border-yellow-100 p-3 rounded-md flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-yellow-800 break-words">{p.docNo} · {p.supplierName}</p>
+                    <p className="text-xs text-yellow-700 break-words">{p.material} · {p.outstandingQty.toLocaleString('en-IN')} outstanding · ordered {fmtDate(p.docDate)} ({p.ageDays} days)</p>
                   </div>
-                  <Button variant="outline" className="!bg-white !text-yellow-700 !border-yellow-200">Track</Button>
+                  <button type="button" onClick={() => navigate('/procurement/inward/new')}
+                    className="w-full sm:w-auto shrink-0 px-3 py-2 sm:py-1.5 text-sm font-medium rounded-lg border border-yellow-200 bg-white text-yellow-700">
+                    Receive
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </Card>
-      </div>
+      </FadeIn>
 
       <Card className="min-h-[200px]">
-        <CardHeader title="Supplier-wise Purchases" />
-        {isLoading ? (
-          <div className="animate-pulse flex flex-col gap-3 mt-4">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-8 bg-[var(--color-border)] rounded w-full"></div>
-            ))}
-          </div>
+        <CardHeader title={`Supplier-wise Purchases (${period})`} />
+        {isLoading ? <ListSkeleton rows={4} /> : !data || data.supplierWisePurchases.length === 0 ? (
+          <EmptyNote>No purchases in this period.</EmptyNote>
         ) : (
           <div className="flex flex-col gap-2">
-            {SUPPLIER_PURCHASES.map((s, idx) => (
-              <div key={s.supplier} className="flex justify-between items-center border-b border-[var(--color-border)] py-2 last:border-0">
-                <p className="text-sm font-medium">{idx + 1}. {s.supplier}</p>
-                <p className="text-sm font-semibold">₹ {s.amount.toLocaleString('en-IN')}</p>
+            {data.supplierWisePurchases.map((s, idx) => (
+              <div key={s.supplierId} className="flex justify-between items-center gap-3 border-b border-[var(--color-border)] py-2 last:border-0">
+                <p className="text-sm font-medium min-w-0 break-words">{idx + 1}. {s.supplierName} <span className="text-xs text-muted">({s.count} PO{s.count > 1 ? 's' : ''})</span></p>
+                <p className="text-sm font-semibold shrink-0 whitespace-nowrap">
+                  <RestrictedValue perm="purchases.rate.view">{s.total !== undefined ? formatINR(s.total) : ''}</RestrictedValue>
+                </p>
               </div>
             ))}
           </div>

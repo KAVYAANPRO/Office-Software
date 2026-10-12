@@ -1,10 +1,12 @@
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { AdminLayout } from '../../layouts/AdminLayout/AdminLayout';
 import { AuthLayout } from '../../layouts/AuthLayout/AuthLayout';
 import Dashboard from '../../pages/Dashboard';
 import ErrorPage from '../../pages/ErrorPage';
 import Login from '../../pages/auth/Login';
 import { ProtectedRoute } from '../../components/navigation/ProtectedRoute';
+import { RequirePermission } from '../../components/navigation/RequirePermission';
 import { SupplierList } from '../../pages/procurement/suppliers/SupplierList';
 import { SupplierForm } from '../../pages/procurement/suppliers/SupplierForm';
 import { MaterialList } from '../../pages/inventory/materials/MaterialList';
@@ -25,10 +27,26 @@ import { CustomerList } from '../../pages/masters/customers/CustomerList';
 import { CustomerForm } from '../../pages/masters/customers/CustomerForm';
 import { CategoryList } from '../../pages/masters/categories/CategoryList';
 import { CategoryForm } from '../../pages/masters/categories/CategoryForm';
+import { AgentList } from '../../pages/masters/agents/AgentList';
+import { AgentForm } from '../../pages/masters/agents/AgentForm';
+import { KarigarList } from '../../pages/production/karigars/KarigarList';
+import { KarigarForm } from '../../pages/production/karigars/KarigarForm';
+import { KhataBook } from '../../pages/production/khata-book/KhataBook';
+import { CatalogList } from '../../pages/catalog/CatalogList';
+import { CatalogForm } from '../../pages/catalog/CatalogForm';
+import { ExhibitionOrderList } from '../../pages/sales/exhibitions/ExhibitionOrderList';
+import { ExhibitionOrderForm } from '../../pages/sales/exhibitions/ExhibitionOrderForm';
+import { DeliveryChallanList } from '../../pages/sales/delivery-challans/DeliveryChallanList';
+import { DeliveryChallanForm } from '../../pages/sales/delivery-challans/DeliveryChallanForm';
+import { SalesReturnList } from '../../pages/sales/returns/SalesReturnList';
+import { SalesReturnForm } from '../../pages/sales/returns/SalesReturnForm';
+import { PurchaseReturnList } from '../../pages/procurement/returns/PurchaseReturnList';
+import { PurchaseReturnForm } from '../../pages/procurement/returns/PurchaseReturnForm';
 import { PurchaseOrderList } from '../../pages/procurement/purchases/PurchaseOrderList';
 import { PurchaseOrderForm } from '../../pages/procurement/purchases/PurchaseOrderForm';
 import { PendingInwardList } from '../../pages/procurement/inward/PendingInwardList';
 import { InwardForm } from '../../pages/procurement/inward/InwardForm';
+import { DirectInwardForm } from '../../pages/procurement/inward/DirectInwardForm';
 import { DesignList } from '../../pages/production/designs/DesignList';
 import { DesignForm } from '../../pages/production/designs/DesignForm';
 import { JobSlipList } from '../../pages/production/job-slips/JobSlipList';
@@ -38,7 +56,9 @@ import { IssuanceForm } from '../../pages/production/issuance/IssuanceForm';
 import { DesignDetail } from '../../pages/production/designs/DesignDetail';
 import { ProductionRequirementList } from '../../pages/production/requirements/ProductionRequirementList';
 import { ProductionRequirementForm } from '../../pages/production/requirements/ProductionRequirementForm';
-import { JobSlipDetail } from '../../pages/production/job-slips/JobSlipDetail';
+import { JobSlipDetailSwitch } from '../../pages/production/job-slips/JobSlipDetailSwitch';
+import { JobSlipNew } from '../../pages/production/job-slips/JobSlipNew';
+import { JobSlipEditSwitch } from '../../pages/production/job-slips/JobSlipEdit';
 import { ReceivingList } from '../../pages/production/receiving/ReceivingList';
 import { ReceivingForm } from '../../pages/production/receiving/ReceivingForm';
 import { ReconciliationDetail } from '../../pages/production/reconciliation/ReconciliationDetail';
@@ -124,6 +144,9 @@ const router = createBrowserRouter([
           { path: 'categories', element: <CategoryList /> },
           { path: 'categories/new', element: <CategoryForm /> },
           { path: 'categories/:id', element: <CategoryForm /> },
+          { path: 'agents', element: <AgentList /> },
+          { path: 'agents/new', element: <AgentForm /> },
+          { path: 'agents/:id', element: <AgentForm /> },
         ],
       },
       {
@@ -137,7 +160,11 @@ const router = createBrowserRouter([
           { path: 'purchases/new', element: <PurchaseOrderForm /> },
           { path: 'purchases/:id', element: <PurchaseOrderForm /> },
           { path: 'inward', element: <PendingInwardList /> },
+          { path: 'inward/new', element: <DirectInwardForm /> },
           { path: 'inward/:id', element: <InwardForm /> },
+          { path: 'returns', element: <PurchaseReturnList /> },
+          { path: 'returns/new', element: <PurchaseReturnForm /> },
+          { path: 'returns/:id', element: <PurchaseReturnForm /> },
         ],
       },
       {
@@ -152,9 +179,10 @@ const router = createBrowserRouter([
           { path: 'requirements/new', element: <ProductionRequirementForm /> },
           { path: 'requirements/:id', element: <ProductionRequirementForm /> },
           { path: 'job-slips', element: <JobSlipList /> },
-          { path: 'job-slips/new', element: <JobSlipForm /> },
-          { path: 'job-slips/:id', element: <JobSlipDetail /> },
-          { path: 'job-slips/:id/edit', element: <JobSlipForm /> },
+          { path: 'job-slips/new', element: <JobSlipNew /> },
+          { path: 'job-slips/new-from-design', element: <JobSlipForm /> },
+          { path: 'job-slips/:id', element: <JobSlipDetailSwitch /> },
+          { path: 'job-slips/:id/edit', element: <JobSlipEditSwitch /> },
           { path: 'processing', element: <ProcessingJobList /> },
           { path: 'processing/new', element: <ProcessingJobForm /> },
           { path: 'processing/:id', element: <ProcessingJobForm /> },
@@ -164,6 +192,10 @@ const router = createBrowserRouter([
           { path: 'reconciliation/:id', element: <ReconciliationDetail /> },
           { path: 'issuance', element: <PendingIssuanceList /> },
           { path: 'issuance/:id', element: <IssuanceForm /> },
+          { path: 'karigars', element: <KarigarList /> },
+          { path: 'karigars/new', element: <KarigarForm /> },
+          { path: 'karigars/:id', element: <KarigarForm /> },
+          { path: 'khata-book', element: <KhataBook /> },
         ],
       },
       {
@@ -184,8 +216,8 @@ const router = createBrowserRouter([
       {
         path: 'costing',
         children: [
-          { index: true, element: <CostSheetList /> },
-          { path: ':id', element: <CostSheetDetail /> },
+          { index: true, element: <RequirePermission perm="costing.view"><CostSheetList /></RequirePermission> },
+          { path: ':id', element: <RequirePermission perm="costing.view"><CostSheetDetail /></RequirePermission> },
         ],
       },
       {
@@ -206,24 +238,42 @@ const router = createBrowserRouter([
           { path: 'invoices', element: <InvoiceList /> },
           { path: 'invoices/new', element: <InvoiceForm /> },
           { path: 'invoices/:id', element: <InvoiceDetail /> },
-          { path: 'payments', element: <PaymentList /> },
-          { path: 'payments/new', element: <PaymentForm /> },
+          { path: 'payments', element: <RequirePermission perm="payments.view"><PaymentList /></RequirePermission> },
+          { path: 'payments/new', element: <RequirePermission perm="payments.create"><PaymentForm /></RequirePermission> },
+          { path: 'exhibition-orders', element: <ExhibitionOrderList /> },
+          { path: 'exhibition-orders/new', element: <ExhibitionOrderForm /> },
+          { path: 'exhibition-orders/:id', element: <ExhibitionOrderForm /> },
+          { path: 'delivery-challans', element: <DeliveryChallanList /> },
+          { path: 'delivery-challans/new', element: <DeliveryChallanForm /> },
+          { path: 'delivery-challans/:id', element: <DeliveryChallanForm /> },
+          { path: 'returns', element: <SalesReturnList /> },
+          { path: 'returns/new', element: <SalesReturnForm /> },
+          { path: 'returns/:id', element: <SalesReturnForm /> },
+        ],
+      },
+      // Catalog
+      {
+        path: 'catalog',
+        children: [
+          { index: true, element: <CatalogList /> },
+          { path: 'new', element: <CatalogForm /> },
+          { path: ':id', element: <CatalogForm /> },
         ],
       },
       // Phase 8 — Traceability
       { path: 'traceability', element: <TraceabilitySearch /> },
       // Phase 9 — Control
       { path: 'reports', element: <ReportsList /> },
-      { path: 'audit-log', element: <AuditLog /> },
-      { path: 'settings', element: <Settings /> },
+      { path: 'audit-log', element: <RequirePermission perm="auditlog.view"><AuditLog /></RequirePermission> },
+      { path: 'settings', element: <RequirePermission perm="settings.manage"><Settings /></RequirePermission> },
       // Admin
       {
         path: 'admin',
         children: [
           { index: true, element: <Navigate to="users" replace /> },
-          { path: 'users', element: <UserList /> },
-          { path: 'users/new', element: <UserForm /> },
-          { path: 'users/:id', element: <UserForm /> },
+          { path: 'users', element: <RequirePermission perm="users.manage"><UserList /></RequirePermission> },
+          { path: 'users/new', element: <RequirePermission perm="users.manage"><UserForm /></RequirePermission> },
+          { path: 'users/:id', element: <RequirePermission perm="users.manage"><UserForm /></RequirePermission> },
         ],
       },
     ],
@@ -244,5 +294,10 @@ const router = createBrowserRouter([
 ]);
 
 export function AppRouter() {
-  return <RouterProvider router={router} />;
+  // reducedMotion="user": framer-motion drops transform animations (keeps fades) when the OS asks for less motion.
+  return (
+    <MotionConfig reducedMotion="user">
+      <RouterProvider router={router} />
+    </MotionConfig>
+  );
 }

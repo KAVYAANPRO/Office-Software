@@ -1,176 +1,158 @@
-import { useState, useEffect } from 'react';
-import { Button } from '../../components/ui/Button';
+import { useNavigate } from 'react-router-dom';
 import { KPICard } from '../../components/ui/KPICard';
 import { Card, CardHeader } from '../../components/ui/Card';
-import { 
-  Package, 
-  ShoppingBag, 
-  Factory, 
-  Activity, 
-  AlertTriangle,
-  TrendingUp,
-  CreditCard,
-  Clock
-} from 'lucide-react';
+import { Package, ShoppingBag, Factory, Activity, AlertTriangle, TrendingUp, CreditCard, Clock, IndianRupee } from 'lucide-react';
+import { SmartInsightsPanel } from './SmartInsightsPanel';
+import { dashboardsApi, fmtUnits, timeAgo } from '../../lib/api/insights';
+import { formatINR } from '../../lib/format/money';
+import {
+  RangeFilter, useRange, useDashboardData, ErrorBanner, EmptyNote, ListSkeleton, AlertRow, trendOf, TREND_LABEL, PERIOD_LABEL,
+} from './dashboardKit';
+import { STAGGER_CHILDREN } from '../pageKit';
+import { FadeIn } from '../../components/motion';
+
+const ACTIVITY_DOT: Record<string, string> = {
+  confirmed: 'bg-[var(--color-success)]',
+  created: 'bg-[var(--color-primary)]',
+  cancelled: 'bg-[var(--color-error)]',
+};
+
+const ENTITY_LABEL: Record<string, string> = {
+  Purchase: 'Purchase', Inward: 'Inward', JobSlip: 'Job slip', MaterialIssue: 'Material issue', JobReceipt: 'Finished goods receipt',
+  Invoice: 'Invoice', SalesOrder: 'Sales order', Payment: 'Payment', StockAdjustment: 'Stock adjustment',
+};
 
 export function AdminDashboard() {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate API fetch
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const navigate = useNavigate();
+  const range = useRange('monthly');
+  const { data, isLoading, error } = useDashboardData(() => dashboardsApi.admin(range.params), [range.key]);
+  const trendLabel = TREND_LABEL[range.range];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end sm:flex-wrap sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Overview</h1>
-          <p className="text-muted">Welcome to the Admin Dashboard.</p>
+          <h1 className="text-xl md:text-2xl font-bold">Overview</h1>
+          <p className="text-muted">Stock is as of now; production and sales cover the {PERIOD_LABEL[range.range]}.</p>
         </div>
+        <RangeFilter state={range} />
       </div>
-      
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+      <ErrorBanner message={error} />
+
+      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 ${STAGGER_CHILDREN}`}>
         <KPICard
           title="Total Raw Stock"
-          value="12,500 m"
+          value={data ? fmtUnits(data.rawStockByUnit) : '—'}
           icon={<Package size={20} />}
           isLoading={isLoading}
-          trend={{ value: '500 m', isPositive: true, label: 'vs last week' }}
+          trend={data ? { value: formatINR(data.totalRawStockValue), isPositive: true, label: 'stock value' } : undefined}
+          onClick={() => navigate('/inventory/stock')}
         />
         <KPICard
           title="Total Ready Stock"
-          value="3,240 pcs"
+          value={data ? `${data.totalReadyStock.toLocaleString('en-IN')} pcs` : '—'}
           icon={<ShoppingBag size={20} />}
           isLoading={isLoading}
-          trend={{ value: '120 pcs', isPositive: true, label: 'vs last week' }}
+          onClick={() => navigate('/ready-stock')}
         />
         <KPICard
           title="Material with Factories"
-          value="4,200 m"
+          value={data ? fmtUnits(data.materialWithFactoriesByUnit) : '—'}
           icon={<Factory size={20} />}
           isLoading={isLoading}
+          onClick={() => navigate('/production/issuance')}
         />
         <KPICard
           title="Jobs in Progress"
-          value="15"
+          value={data ? data.jobsInProgress : '—'}
           icon={<Activity size={20} />}
           isLoading={isLoading}
+          onClick={() => navigate('/production/job-slips')}
         />
         <KPICard
-          title="Pending Jobs"
-          value="8"
+          title="Pending Jobs (not issued)"
+          value={data ? data.pendingJobs : '—'}
           icon={<Clock size={20} />}
           isLoading={isLoading}
+          onClick={() => navigate('/production/job-slips')}
         />
         <KPICard
           title="Production Completed"
-          value="850 pcs"
+          value={data ? `${data.productionCompleted.toLocaleString('en-IN')} pcs` : '—'}
           icon={<TrendingUp size={20} />}
           isLoading={isLoading}
-          trend={{ value: '12%', isPositive: true, label: 'this month' }}
+          trend={trendOf(data?.productionCompletedTrendPct, trendLabel)}
+          onClick={() => navigate('/production/receiving')}
+        />
+        <KPICard
+          title="Sales"
+          value={data ? formatINR(data.sales) : '—'}
+          icon={<IndianRupee size={20} />}
+          isLoading={isLoading}
+          trend={trendOf(data?.salesTrendPct, trendLabel)}
+          onClick={() => navigate('/sales/invoices')}
         />
         <KPICard
           title="Pending Payments"
-          value="₹ 2,45,000"
+          value={data ? formatINR(data.pendingPaymentsTotal) : '—'}
           icon={<CreditCard size={20} />}
           isLoading={isLoading}
-          trend={{ value: '₹ 15,000', isPositive: false, label: 'overdue' }}
+          trend={data && data.overduePaymentsCount > 0 ? { value: formatINR(data.overduePaymentsTotal), isPositive: false, label: `overdue (${data.overduePaymentsCount})` } : undefined}
+          onClick={() => navigate('/sales/payments')}
         />
         <KPICard
-          title="Alerts"
-          value="3"
+          title="Open Alerts"
+          value={data ? data.alertsCount : '—'}
           icon={<AlertTriangle size={20} className="text-[var(--color-error)]" />}
           isLoading={isLoading}
-          trend={{ value: 'Action Required', isPositive: false, label: 'Low stock & Shortage' }}
+          trend={data ? { value: `${data.lowStockCount} low stock`, isPositive: data.lowStockCount === 0, label: `${data.shortageCount} high shortage` } : undefined}
+          onClick={() => navigate('/inventory/stock')}
         />
       </div>
 
-      {/* Sections Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <SmartInsightsPanel />
+
+      <FadeIn delay={0.12} className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <Card className="min-h-[300px]">
           <CardHeader title="Recent Activity" />
-          {isLoading ? (
-            <div className="animate-pulse flex flex-col gap-4 mt-4">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="flex gap-4">
-                  <div className="w-2 h-2 rounded-full bg-[var(--color-border)] mt-2"></div>
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-[var(--color-border)] rounded w-3/4"></div>
-                    <div className="h-3 bg-[var(--color-border)] rounded w-1/2"></div>
+          {isLoading ? <ListSkeleton rows={4} /> : !data || data.recentActivity.length === 0 ? (
+            <EmptyNote>No business activity recorded yet.</EmptyNote>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {data.recentActivity.map(a => (
+                <div key={`${a.entityId}-${a.action}-${a.at}`} className="flex gap-4 border-b border-[var(--color-border)] pb-3 last:border-0">
+                  <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${ACTIVITY_DOT[a.action] ?? 'bg-[var(--color-warning)]'}`}></div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium break-words">{ENTITY_LABEL[a.entityType] ?? a.entityType} {a.action}</p>
+                    <p className="text-xs text-muted break-words">{a.ref} · by {a.by}</p>
+                    <p className="text-xs text-muted mt-1">{timeAgo(a.at)}</p>
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div className="flex gap-4 border-b border-[var(--color-border)] pb-3">
-                <div className="w-2 h-2 rounded-full bg-[var(--color-success)] mt-2"></div>
-                <div>
-                  <p className="text-sm font-medium">Finished Goods Received</p>
-                  <p className="text-xs text-muted">Job #JS-24-001 (50 pcs) received from Factory A</p>
-                  <p className="text-xs text-muted mt-1">2 hours ago</p>
-                </div>
-              </div>
-              <div className="flex gap-4 border-b border-[var(--color-border)] pb-3">
-                <div className="w-2 h-2 rounded-full bg-[var(--color-primary)] mt-2"></div>
-                <div>
-                  <p className="text-sm font-medium">Material Issued</p>
-                  <p className="text-xs text-muted">200 m Cotton Fabric issued to Artisan B</p>
-                  <p className="text-xs text-muted mt-1">5 hours ago</p>
-                </div>
-              </div>
-              <div className="flex gap-4 border-b border-[var(--color-border)] pb-3">
-                <div className="w-2 h-2 rounded-full bg-[var(--color-warning)] mt-2"></div>
-                <div>
-                  <p className="text-sm font-medium">Sales Order Confirmed</p>
-                  <p className="text-xs text-muted">SO-24-105 confirmed for 120 pcs</p>
-                  <p className="text-xs text-muted mt-1">Yesterday</p>
-                </div>
-              </div>
             </div>
           )}
         </Card>
 
         <Card className="min-h-[300px]">
           <CardHeader title="Shortage & Low Stock Alerts" />
-          {isLoading ? (
-             <div className="animate-pulse flex flex-col gap-4 mt-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-12 bg-[var(--color-border)] rounded w-full"></div>
-              ))}
-            </div>
+          {isLoading ? <ListSkeleton /> : !data || (data.shortageSummary.length === 0 && data.lowStock.length === 0) ? (
+            <EmptyNote>No shortage or low-stock alerts right now.</EmptyNote>
           ) : (
             <div className="flex flex-col gap-3">
-              <div className="bg-red-50 border border-red-100 p-3 rounded-md flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-semibold text-red-800">High Shortage Alert</p>
-                  <p className="text-xs text-red-600">Job JS-24-002: Shortage 6% (Tolerance 3%)</p>
-                </div>
-                <Button variant="outline" className="!bg-white !text-red-700 !border-red-200">Review</Button>
-              </div>
-              <div className="bg-yellow-50 border border-yellow-100 p-3 rounded-md flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-semibold text-yellow-800">Low Stock</p>
-                  <p className="text-xs text-yellow-600">Cotton Fabric - Blue (Current: 50m, Min: 100m)</p>
-                </div>
-                <Button variant="outline" className="!bg-white !text-yellow-700 !border-yellow-200">Purchase</Button>
-              </div>
-              <div className="bg-yellow-50 border border-yellow-100 p-3 rounded-md flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-semibold text-yellow-800">Low Stock</p>
-                  <p className="text-xs text-yellow-600">Kurti D-1025 XL (Current: 5, Min: 20)</p>
-                </div>
-                <Button variant="outline" className="!bg-white !text-yellow-700 !border-yellow-200">Plan Job</Button>
-              </div>
+              {data.shortageSummary.map(a => <AlertRow key={a.key} alert={a} action="Review" onOpen={navigate} />)}
+              {data.lowStock.map(a => (
+                <AlertRow
+                  key={a.key}
+                  alert={a}
+                  action={a.type === 'LOW_RAW_STOCK' ? 'Purchase' : 'Plan Job'}
+                  onOpen={() => navigate(a.type === 'LOW_RAW_STOCK' ? '/procurement/purchases/new' : '/production/job-slips/new')}
+                />
+              ))}
             </div>
           )}
         </Card>
-      </div>
+      </FadeIn>
     </div>
   );
 }

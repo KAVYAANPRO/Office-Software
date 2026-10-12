@@ -3,51 +3,50 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { masterCrudApi } from '../../../lib/api/masterCrud';
 
-interface Size {
+interface SizeRow {
   id: string;
   name: string;
-  code: string;
-  sortOrder: number;
-  status: 'Active' | 'Inactive';
+  sortOrder?: number;
+  isActive: boolean;
 }
 
-const mockSizes: Size[] = [
-  { id: '1', name: 'Extra Small', code: 'XS', sortOrder: 1, status: 'Active' },
-  { id: '2', name: 'Small', code: 'S', sortOrder: 2, status: 'Active' },
-  { id: '3', name: 'Medium', code: 'M', sortOrder: 3, status: 'Active' },
-  { id: '4', name: 'Large', code: 'L', sortOrder: 4, status: 'Active' },
-  { id: '5', name: 'Extra Large', code: 'XL', sortOrder: 5, status: 'Active' },
-  { id: '6', name: 'Double Extra Large', code: 'XXL', sortOrder: 6, status: 'Active' },
-];
+const api = masterCrudApi<{ _id: string; name: string; sortOrder?: number; isActive: boolean }>('/sizes');
 
 export function SizeList() {
   const navigate = useNavigate();
-  const [sizes, setSizes] = useState<Size[]>([]);
+  const [sizes, setSizes] = useState<SizeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => { setSizes(mockSizes); setIsLoading(false); }, 600);
-    return () => clearTimeout(timer);
+    api.list()
+      .then(data => {
+        const rows: SizeRow[] = data
+          .map(r => ({ id: r._id, name: r.name, sortOrder: r.sortOrder, isActive: r.isActive }))
+          .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+        setSizes(rows);
+      })
+      .catch(() => setError('Failed to load sizes.'))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const filtered = sizes.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.code.toLowerCase().includes(searchTerm.toLowerCase())
+    s.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const columns = [
-    { header: 'Size Name', accessor: 'name' as keyof Size },
-    { header: 'Code', accessor: 'code' as keyof Size },
-    { header: 'Sort Order', accessor: 'sortOrder' as keyof Size },
+    { header: 'Size Name', accessor: 'name' as keyof SizeRow },
+    { header: 'Sort Order', accessor: (row: SizeRow) => row.sortOrder ?? '—' },
     {
       header: 'Status',
-      accessor: (row: Size) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+      accessor: (row: SizeRow) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+          row.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
         }`}>
-          {row.status}
+          {row.isActive ? 'Active' : 'Inactive'}
         </span>
       ),
     },
@@ -55,15 +54,16 @@ export function SizeList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Sizes</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Sizes</h1>
           <p className="text-[var(--color-text-muted)]">Manage garment size options (XS, S, M, L, XL, etc.).</p>
         </div>
-        <Button onClick={() => navigate('/masters/sizes/new')}>
+        <Button className="w-full sm:w-auto" onClick={() => navigate('/masters/sizes/new')}>
           <Plus size={16} /> Add Size
         </Button>
       </div>
+      {error && <p className="text-red-600 text-sm">{error}</p>}
       <DataTable
         columns={columns}
         data={filtered}

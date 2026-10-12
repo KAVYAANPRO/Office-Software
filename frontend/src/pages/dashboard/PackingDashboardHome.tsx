@@ -1,88 +1,64 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { KPICard } from '../../components/ui/KPICard';
 import { Card, CardHeader } from '../../components/ui/Card';
-import {
-  ShoppingBag,
-  PackageOpen,
-  PackageCheck,
-  ArrowRight,
-} from 'lucide-react';
-
-interface DesignStock {
-  design: string;
-  stock: string;
-}
-
-const DESIGN_WISE_STOCK: DesignStock[] = [
-  { design: 'Kurti D-1025', stock: '85 pcs' },
-  { design: 'Top D-1540', stock: '60 pcs' },
-  { design: 'Dress D-2031', stock: '42 pcs' },
-  { design: 'Kurti D-1102', stock: '15 pcs' },
-];
+import { ShoppingBag, PackageOpen, PackageCheck, ArrowRight } from 'lucide-react';
+import { dashboardsApi } from '../../lib/api/insights';
+import { useDashboardData, ErrorBanner, EmptyNote, ListSkeleton } from './dashboardKit';
+import { STAGGER_CHILDREN } from '../pageKit';
 
 export function PackingDashboardHome() {
-  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const { data, isLoading, error } = useDashboardData(() => dashboardsApi.packing(), []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  // Group the per-variant rows by design for the "design-wise stock" list.
+  const byDesign = new Map<string, { label: string; onHand: number; pending: number }>();
+  for (const r of data?.designWiseStock ?? []) {
+    const e = byDesign.get(r.designNo) ?? { label: r.designNo, onHand: 0, pending: 0 };
+    e.onHand += r.onHand;
+    e.pending += r.pendingQty;
+    byDesign.set(r.designNo, e);
+  }
+  const designs = Array.from(byDesign.values()).sort((a, b) => b.onHand - a.onHand);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold">Packing Dashboard</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Packing Dashboard</h1>
           <p className="text-muted">Track ready stock, packing progress, and design-wise stock.</p>
         </div>
-        <Button variant="outline" onClick={() => navigate('/ready-stock/packing')}>
+        <Button variant="outline" className="w-full sm:w-auto" onClick={() => navigate('/ready-stock/packing')}>
           Go to Packing Worklist <ArrowRight size={16} />
         </Button>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          title="Ready Stock"
-          value="3,240 pcs"
-          icon={<ShoppingBag size={20} />}
-          isLoading={isLoading}
-          trend={{ value: '120 pcs', isPositive: true, label: 'vs last week' }}
-        />
-        <KPICard
-          title="Pending Packing"
-          value="410 pcs"
-          icon={<PackageOpen size={20} />}
-          isLoading={isLoading}
-        />
+      <ErrorBanner message={error} />
+
+      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 ${STAGGER_CHILDREN}`}>
+        <KPICard title="Ready Stock" value={data ? `${data.readyStockTotal.toLocaleString('en-IN')} pcs` : '—'} icon={<ShoppingBag size={20} />} isLoading={isLoading} onClick={() => navigate('/ready-stock')} />
+        <KPICard title="Pending Packing" value={data ? `${data.pendingPackingTotal.toLocaleString('en-IN')} pcs` : '—'} icon={<PackageOpen size={20} />} isLoading={isLoading} onClick={() => navigate('/ready-stock/packing')} />
         <KPICard
           title="Packed Quantity"
-          value="2,830 pcs"
+          value={data ? `${data.packedQtyTotal.toLocaleString('en-IN')} pcs` : '—'}
           icon={<PackageCheck size={20} />}
           isLoading={isLoading}
-          trend={{ value: '9%', isPositive: true, label: 'this month' }}
+          trend={data && data.readyStockTotal > 0 ? { value: `${Math.round((data.packedQtyTotal / data.readyStockTotal) * 100)}%`, isPositive: true, label: 'of ready stock packed' } : undefined}
         />
       </div>
 
       <Card className="min-h-[300px]">
         <CardHeader title="Design-wise Stock" />
-        {isLoading ? (
-          <div className="animate-pulse flex flex-col gap-4 mt-4">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-8 bg-[var(--color-border)] rounded w-full"></div>
-            ))}
-          </div>
+        {isLoading ? <ListSkeleton rows={4} /> : designs.length === 0 ? (
+          <EmptyNote>No ready stock on hand.</EmptyNote>
         ) : (
           <div className="flex flex-col gap-2">
-            {DESIGN_WISE_STOCK.map((d, idx) => (
-              <div key={d.design} className="flex justify-between items-center border-b border-[var(--color-border)] py-2 last:border-0">
-                <p className="text-sm font-medium">{idx + 1}. {d.design}</p>
-                <p className="text-sm font-semibold">{d.stock}</p>
+            {designs.map((d, idx) => (
+              <div key={d.label} className="flex justify-between items-center gap-3 border-b border-[var(--color-border)] py-2 last:border-0">
+                <p className="text-sm font-medium min-w-0 break-words">{idx + 1}. {d.label}</p>
+                <p className="text-sm font-semibold shrink-0 whitespace-nowrap">
+                  {d.onHand.toLocaleString('en-IN')} pcs{d.pending > 0 && <span className="text-xs text-amber-600 font-normal"> · {d.pending} to pack</span>}
+                </p>
               </div>
             ))}
           </div>

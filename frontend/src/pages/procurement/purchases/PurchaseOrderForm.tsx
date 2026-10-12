@@ -1,139 +1,262 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, PackageCheck } from 'lucide-react';
 import { ConfirmDialog } from '../../../components/feedback/ConfirmDialog';
-import { RestrictedValue } from '../../../lib/permissions/Can';
-import { apportionOtherCharges } from '../../../lib/mock/fifo';
+import { Can, RestrictedValue } from '../../../lib/permissions/Can';
+import { formatINR } from '../../../lib/format/money';
+import { QuickAddMaterialSheet } from '../../../components/forms/QuickAddMaterialSheet';
+import { QuickAddSupplierSheet } from '../../../components/forms/QuickAddSupplierSheet';
+import { PickerSheet, PickerField, type PickerItem } from '../../../components/forms/PickerSheet';
+import { UnitPickerField } from '../../../components/forms/UnitPickerField';
+import { ColourPickerField } from '../../../components/forms/ColourPickerField';
+import { DraftBanner } from '../../../components/feedback/DraftBanner';
+import { useDraft } from '../../../lib/drafts/useDraft';
+import { submitOrQueue } from '../../../lib/offline/submitOrQueue';
+import { suppliersApi, type SupplierRecord } from '../../../lib/api/suppliers';
+import {
+  purchasesApi, materialsApi, materialVariantsApi, uomsApi, coloursApi, problemMessage, formatDate,
+  PURCHASE_STATUS_LABEL, PURCHASE_STATUS_CLASS,
+  type Purchase, type MaterialRecord, type MaterialVariantRecord, type UomRecord, type ColourRecord,
+} from '../../../lib/api/procurement';
 
 interface POItem {
-  id: string;
+  key: string;
   materialId: string;
+  colourName: string;
+  uomId: string;
   quantity: number;
   rate: number;
 }
 
-/** PUR-02 — supplier invoice numbers already recorded, keyed by supplier. */
-const EXISTING_SUPPLIER_INVOICES: Record<string, string[]> = {
-  'sup-1': ['INV-8841', 'INV-8902'],
-  'sup-2': ['ZD-2201'],
-};
+const newItem = (): POItem => ({ key: Math.random().toString(36).slice(2), materialId: '', colourName: '', uomId: '', quantity: 0, rate: 0 });
+
+/** PUR-04 preview: other charges apportioned by line value (the server does the authoritative split on confirm). */
+function apportion(amounts: number[], charges: number): number[] {
+  const total = amounts.reduce((s, a) => s + a, 0);
+  if (!charges || total <= 0) return amounts.map(() => 0);
+  return amounts.map(a => (a / total) * charges);
+}
 
 export function PurchaseOrderForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const isEditing = Boolean(id);
 
-  const [isLoading, setIsLoading] = useState(isEditing);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
-  const [formData, setFormData] = useState({
-    supplierId: '',
-    supplierInvoiceNo: '',
-    expectedDelivery: '',
-    otherCharges: 0,
-    notes: '',
-  });
-  const [invoiceNoError, setInvoiceNoError] = useState('');
+  const [suppliers, setSuppliers] = useState<SupplierRecord[]>([]);
+  const [materials, setMaterials] = useState<MaterialRecord[]>([]);
+  const [variants, setVariants] = useState<MaterialVariantRecord[]>([]);
+  const [uoms, setUoms] = useState<UomRecord[]>([]);
+  /** PO line waiting for a material created from the quick-add sheet. */
+  const [addMaterialForItem, setAddMaterialForItem] = useState<string | null>(null);
+  const [addSupplierOpen, setAddSupplierOpen] = useState(false);
+  /** What was typed on the search page, used to pre-fill the quick-add sheet. */
+  const [quickName, setQuickName] = useState('');
+  const [picker, setPicker] = useState<{ kind: 'supplier' } | { kind: 'material'; key: string } | null>(null);
+  const [queuedMsg, setQueuedMsg] = useState('');
+  const [colours, setColours] = useState<ColourRecord[]>([]);
+  const [purchase, setPurchase] = useState<Purchase | null>(null);
 
+  const [formData, setFormData] = useState({ supplierId: '', supplierInvoiceNo: '', expectedDelivery: '', otherCharges: 0, notes: '' });
+  const [items, setItems] = useState<POItem[]>([newItem()]);
+
+  // An unsaved new purchase order is kept on this device until it is saved.
+  const draft = useDraft(
+    'purchase-order:new',
+    { formData, items },
+    d => { setFormData(d.formData); setItems(d.items?.length ? d.items : [newItem()]); },
+    { enabled: !isLoading && !id, isEmpty: d => !d.formData.supplierId && !d.formData.notes && !d.formData.supplierInvoiceNo && d.items.every(i => !i.materialId && !i.quantity) },
+  );
+
+  const status = purchase?.status ?? 'DRAFT';
   // PUR-06 — a confirmed purchase is locked apart from notes/attachment.
-  // Every existing PO opened for edit here is already Confirmed, since Draft
-  // POs would not yet have a persisted id to navigate back to.
-  const [status] = useState<'Draft' | 'Confirmed'>(isEditing ? 'Confirmed' : 'Draft');
-  const isLocked = status === 'Confirmed';
-
-  const [items, setItems] = useState<POItem[]>([
-    { id: 'item-1', materialId: '', quantity: 1, rate: 0 }
-  ]);
+  const isLocked = status !== 'DRAFT';
 
   useEffect(() => {
-    if (isEditing) {
-      // Mock fetch existing PO
-      const timer = setTimeout(() => {
-        setFormData({
-          supplierId: 'sup-1',
-          supplierInvoiceNo: 'INV-8841',
-          expectedDelivery: '2024-11-01',
-          otherCharges: 500,
-          notes: 'Deliver to unit 2',
-        });
-        setItems([
-          { id: 'item-1', materialId: 'mat-1', quantity: 500, rate: 90 },
-          { id: 'item-2', materialId: 'mat-2', quantity: 10, rate: 1200 },
+    let active = true;
+    (async () => {
+      try {
+        const [s, m, v, u, c] = await Promise.all([
+          suppliersApi.list(), materialsApi.list(), materialVariantsApi.list(), uomsApi.list(), coloursApi.list(),
         ]);
-        setIsLoading(false);
-      }, 600);
-      return () => clearTimeout(timer);
-    }
-  }, [isEditing]);
+        if (!active) return;
+        setSuppliers(s); setMaterials(m); setVariants(v); setUoms(u); setColours(c);
+        if (id) {
+          const p = await purchasesApi.get(id);
+          if (!active) return;
+          setPurchase(p);
+          setFormData({
+            supplierId: p.supplierId,
+            supplierInvoiceNo: p.supplierInvoiceNo ?? '',
+            expectedDelivery: p.expectedDeliveryDate ? p.expectedDeliveryDate.slice(0, 10) : '',
+            otherCharges: p.otherCharges ?? 0,
+            notes: p.notes ?? '',
+          });
+          const vMap = new Map(v.map(x => [x._id, x]));
+          setItems(p.lines.map(l => {
+            const variant = vMap.get(l.materialVariantId);
+            return {
+              key: l._id,
+              materialId: variant?.materialId?._id ?? '',
+              colourName: variant?.colourId?.name ?? '',
+              uomId: l.uomId,
+              quantity: l.qty,
+              rate: l.rate,
+            };
+          }));
+        }
+      } catch (err) {
+        if (active) setError(problemMessage(err, 'Could not load the purchase order.'));
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [id]);
+
+  const materialById = useMemo(() => new Map(materials.map(m => [m._id, m])), [materials]);
+  const uomById = useMemo(() => new Map(uoms.map(u => [u._id, u])), [uoms]);
+  const variantById = useMemo(() => new Map(variants.map(v => [v._id, v])), [variants]);
+
+  /** Colours already set up for a material first, then the rest of the colour master. */
+  const colourOptionsFor = (materialId: string) => {
+    const own = variants.filter(v => v.materialId?._id === materialId).map(v => v.colourId?.name).filter(Boolean) as string[];
+    const rest = colours.map(c => c.name).filter(n => !own.includes(n));
+    return [...own, ...rest];
+  };
 
   const handleHeaderChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleItemChange = (itemId: string, field: keyof POItem, value: string | number) => {
-    setItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, [field]: value } : item
-    ));
+  const handleItemChange = (key: string, field: keyof POItem, value: string | number) => {
+    setItems(prev => prev.map(item => {
+      if (item.key !== key) return item;
+      const next = { ...item, [field]: value };
+      if (field === 'materialId') next.uomId = materialById.get(String(value))?.baseUomId ?? '';
+      return next;
+    }));
   };
 
-  const addItem = () => {
-    setItems(prev => [...prev, { 
-      id: `item-${Date.now()}`, 
-      materialId: '', 
-      quantity: 1, 
-      rate: 0 
-    }]);
-  };
+  const addItem = () => setItems(prev => [...prev, newItem()]);
+  const removeItem = (key: string) => { if (items.length > 1) setItems(prev => prev.filter(i => i.key !== key)); };
 
-  const removeItem = (itemId: string) => {
-    if (items.length > 1) {
-      setItems(prev => prev.filter(item => item.id !== itemId));
+  const lineAmounts = items.map(item => (item.quantity || 0) * (item.rate || 0));
+  const calculateTotal = () => lineAmounts.reduce((t, a) => t + a, 0);
+  const apportionedCharges = apportion(lineAmounts, Number(formData.otherCharges) || 0);
+  const landedPreview = (idx: number) => {
+    if (purchase && isLocked) {
+      const l = purchase.lines[idx];
+      return l?.landedUnitCost !== undefined ? l.landedUnitCost : undefined;
     }
+    const it = items[idx];
+    return it.quantity > 0 ? (lineAmounts[idx] + (apportionedCharges[idx] ?? 0)) / it.quantity : undefined;
   };
 
-  const lineAmounts = items.map(item => item.quantity * item.rate);
-  const calculateTotal = () => lineAmounts.reduce((total, amt) => total + amt, 0);
-
-  /** PUR-04 — other charges apportioned across lines by value, for a landed unit cost per lot. */
-  const apportionedCharges = apportionOtherCharges(lineAmounts, formData.otherCharges || 0);
-
-  /** PUR-02 — same supplier invoice number cannot be entered twice for one supplier. */
-  const checkDuplicateInvoice = (): boolean => {
-    const existing = EXISTING_SUPPLIER_INVOICES[formData.supplierId] ?? [];
-    if (formData.supplierInvoiceNo && existing.includes(formData.supplierInvoiceNo.trim())) {
-      setInvoiceNoError(`Invoice ${formData.supplierInvoiceNo} is already recorded for this supplier.`);
-      return true;
+  const validate = (): string | null => {
+    if (!formData.supplierId) return 'Please select a supplier.';
+    for (const [i, it] of items.entries()) {
+      if (!it.materialId) return `Item ${i + 1}: select a material.`;
+      if (!it.colourName.trim()) return `Item ${i + 1}: enter a colour.`;
+      if (!(it.quantity > 0)) return `Item ${i + 1}: quantity must be more than zero.`;
+      if (it.rate < 0) return `Item ${i + 1}: rate cannot be negative.`;
     }
-    setInvoiceNoError('');
-    return false;
+    return null;
+  };
+
+  const payload = () => ({
+    supplierId: formData.supplierId,
+    supplierInvoiceNo: formData.supplierInvoiceNo.trim() || undefined,
+    expectedDeliveryDate: formData.expectedDelivery || undefined,
+    otherCharges: Number(formData.otherCharges) || 0,
+    notes: formData.notes,
+    lines: items.map(it => ({ materialId: it.materialId, colourName: it.colourName.trim(), uomId: it.uomId || undefined, qty: it.quantity, rate: it.rate })),
+  });
+
+  const offlineLabel = () => {
+    const sup = suppliers.find(s => s._id === formData.supplierId)?.name ?? 'supplier';
+    return `Purchase order · ${sup} · ${items.length} item${items.length === 1 ? '' : 's'}`;
+  };
+
+  /** Saved on this device (no internet) - it is sent automatically once back online. */
+  const finishQueued = (extra = '') => {
+    draft.clear();
+    setQueuedMsg(`Saved on this device — it will be sent when you're back online.${extra}`);
+    window.setTimeout(() => navigate('/procurement/purchases'), 1800);
+  };
+
+  const saveDraft = async (): Promise<Purchase | 'queued' | null> => {
+    const err = validate();
+    if (err) { setError(err); return null; }
+    setError('');
+    if (purchase) return purchasesApi.update(purchase._id, payload());
+    const res = await submitOrQueue<Purchase>({ method: 'POST', url: '/purchases', body: payload(), label: offlineLabel() });
+    return res.queued ? 'queued' : res.data;
+  };
+
+  const handleSaveDraft = async () => {
+    setIsSaving(true);
+    try {
+      const saved = await saveDraft();
+      if (saved === 'queued') { finishQueued(); return; }
+      if (saved) { draft.clear(); navigate('/procurement/purchases'); }
+    } catch (err) {
+      setError(problemMessage(err));
+    } finally { setIsSaving(false); }
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (checkDuplicateInvoice()) return;
+    const err = validate();
+    if (err) { setError(err); return; }
     setShowConfirm(true);
   };
 
   const confirmSubmit = async () => {
     setShowConfirm(false);
     setIsSaving(true);
-
-    // Mock save
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    setIsSaving(false);
-    navigate('/procurement/purchases');
+    try {
+      const saved = await saveDraft();
+      if (!saved) return;
+      if (saved === 'queued') { finishQueued(' It is kept as a draft purchase order — confirm it once it has been sent.'); return; }
+      draft.clear();
+      await purchasesApi.confirm(saved._id);
+      navigate('/procurement/purchases');
+    } catch (err) {
+      setError(problemMessage(err));
+    } finally { setIsSaving(false); }
   };
 
-  const confirmCancel = () => {
-    setShowCancelConfirm(false);
-    navigate('/procurement/purchases');
+  const saveNotes = async () => {
+    if (!purchase) return;
+    setIsSaving(true);
+    try {
+      const p = await purchasesApi.update(purchase._id, { notes: formData.notes });
+      setPurchase(p);
+      setError('');
+    } catch (err) { setError(problemMessage(err)); } finally { setIsSaving(false); }
+  };
+
+  const confirmCancel = async () => {
+    if (!purchase) { navigate('/procurement/purchases'); return; }
+    setIsSaving(true);
+    try {
+      await purchasesApi.cancel(purchase._id, cancelReason.trim());
+      setShowCancel(false);
+      navigate('/procurement/purchases');
+    } catch (err) {
+      setShowCancel(false);
+      setError(problemMessage(err));
+    } finally { setIsSaving(false); }
   };
 
   if (isLoading) {
@@ -144,56 +267,95 @@ export function PurchaseOrderForm() {
     );
   }
 
+  const canReceive = purchase && (status === 'CONFIRMED' || status === 'PARTIALLY_RECEIVED');
+  const uomCode = (uomId: string) => uomById.get(uomId)?.code ?? '';
+
+  const materialSelect = (item: POItem) => (
+    <PickerField
+      value={materialById.get(item.materialId)?.name}
+      placeholder="Tap to choose material"
+      disabled={isLocked}
+      onOpen={() => setPicker({ kind: 'material', key: item.key })}
+    />
+  );
+  const colourInput = (item: POItem) => (
+    <ColourPickerField
+      options={colourOptionsFor(item.materialId)}
+      value={item.colourName}
+      onChange={c => handleItemChange(item.key, 'colourName', c)}
+      placeholder="Choose colour"
+      disabled={isLocked}
+    />
+  );
+  const unitSelect = (item: POItem) => (
+    <UnitPickerField uoms={uoms} value={item.uomId} onChange={u => handleItemChange(item.key, 'uomId', u)} emptyLabel="Base unit" disabled={isLocked} />
+  );
+  const pickedMaterialId = picker?.kind === 'material' ? items.find(i => i.key === picker.key)?.materialId : undefined;
+  const supplierItems: PickerItem[] = suppliers
+    .filter(s => s.isActive || s._id === formData.supplierId)
+    .map(s => ({ id: s._id, title: s.name, subtitle: [s.contactPerson, s.mobile, s.gstin].filter(Boolean).join(' · '), keywords: `${s.mobile ?? ''} ${s.gstin ?? ''}` }));
+  const materialItems: PickerItem[] = materials
+    .filter(m => m.isActive || m._id === pickedMaterialId)
+    .map(m => ({ id: m._id, title: m.name, subtitle: [m.fabricType, uomById.get(m.baseUomId)?.code].filter(Boolean).join(' · ') }));
+  const receivedText = (idx: number) => {
+    const l = purchase?.lines[idx];
+    if (!l || !isLocked) return null;
+    const v = variantById.get(l.materialVariantId);
+    const base = v?.materialId?.baseUomId?.code ?? '';
+    return `Received ${l.qtyReceivedBase.toLocaleString('en-IN')} / ${l.qtyBase.toLocaleString('en-IN')} ${base}`;
+  };
+
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/procurement/purchases')} className="icon-btn">
           <ArrowLeft size={20} />
         </button>
-        <div>
-          <h1 className="text-2xl font-bold">{isEditing ? 'Edit Purchase Order' : 'Create Purchase Order'}</h1>
-          <p className="text-muted">Procure raw materials from suppliers.</p>
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-2">
+            {purchase ? purchase.docNo : 'Create Purchase Order'}
+            {purchase && <span className={`px-2 py-1 rounded-full text-xs font-medium ${PURCHASE_STATUS_CLASS[status]}`}>{PURCHASE_STATUS_LABEL[status]}</span>}
+          </h1>
+          <p className="text-muted">{purchase ? `Dated ${formatDate(purchase.docDate)}${purchase.isDirect ? ' · raised automatically by a direct inward' : ''}` : 'Procure raw materials from suppliers.'}</p>
         </div>
       </div>
 
-      {isLocked && (
+      {!purchase && <DraftBanner restoredAt={draft.restoredAt} onDiscard={() => { draft.clear(); setFormData({ supplierId: '', supplierInvoiceNo: '', expectedDelivery: '', otherCharges: 0, notes: '' }); setItems([newItem()]); }} />}
+      {queuedMsg && <p role="status" className="animate-fade-in text-green-800 text-sm bg-green-50 border border-green-200 rounded-lg px-4 py-3">{queuedMsg}</p>}
+      {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-4 py-3">{error}</p>}
+
+      {isLocked && status !== 'CANCELLED' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
-          This purchase order is <strong>Confirmed</strong> and locked (PUR-06). Only notes and attachments stay editable — cancel it (with a reason) instead of editing supplier, items, or rates.
+          This purchase order is <strong>{PURCHASE_STATUS_LABEL[status]}</strong> and locked (PUR-06). Only notes stay editable — cancel it (with a reason) instead of editing supplier, items, or rates. Cancelling is blocked while any inward exists against it.
+        </div>
+      )}
+      {status === 'CANCELLED' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          Cancelled{purchase?.cancelReason ? ` — ${purchase.cancelReason}` : ''}.
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        {/* Header Details */}
         <Card className="flex flex-col gap-4">
           <h3 className="font-semibold text-lg border-b border-[var(--color-border)] pb-2 mb-2">Order Details</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="input-group">
-              <label className="input-label">Supplier</label>
-              <select
-                name="supplierId"
-                value={formData.supplierId}
-                onChange={handleHeaderChange}
-                className="input-field"
-                disabled={isLocked}
-                required
-              >
-                <option value="">Select Supplier...</option>
-                <option value="sup-1">Alpha Fabrics</option>
-                <option value="sup-2">Zeta Dyeing</option>
-                <option value="sup-3">Premium Trims Ltd</option>
-              </select>
-            </div>
+            <PickerField
+              label="Supplier"
+              value={suppliers.find(s => s._id === formData.supplierId)?.name}
+              hint={suppliers.find(s => s._id === formData.supplierId)?.mobile}
+              placeholder="Tap to choose supplier"
+              disabled={isLocked}
+              onOpen={() => setPicker({ kind: 'supplier' })}
+            />
 
             <Input
               label="Supplier Invoice Number"
               name="supplierInvoiceNo"
               value={formData.supplierInvoiceNo}
               onChange={handleHeaderChange}
-              onBlur={checkDuplicateInvoice}
               disabled={isLocked}
-              error={invoiceNoError}
-              placeholder="e.g. INV-8841"
+              placeholder="e.g. INV-8841 (must be unique per supplier)"
             />
 
             <Input
@@ -203,14 +365,14 @@ export function PurchaseOrderForm() {
               value={formData.expectedDelivery}
               onChange={handleHeaderChange}
               disabled={isLocked}
-              required
             />
 
             <RestrictedValue perm="purchases.rate.view">
               <Input
-                label="Other Charges (₹) — freight, etc."
+                label="Expenses (if any) — freight, etc."
                 name="otherCharges"
                 type="number"
+                inputMode="decimal"
                 min="0"
                 step="0.01"
                 value={formData.otherCharges || ''}
@@ -228,17 +390,24 @@ export function PurchaseOrderForm() {
               onChange={handleHeaderChange}
               className="input-field min-h-[80px] resize-y"
               placeholder="Any special instructions for the supplier..."
+              disabled={status === 'CANCELLED'}
             />
+            {isLocked && status !== 'CANCELLED' && (
+              <div className="mt-2">
+                <Button type="button" variant="secondary" size="sm" onClick={saveNotes} isLoading={isSaving}>Save Notes</Button>
+              </div>
+            )}
           </div>
         </Card>
 
-        {/* Line Items */}
         <Card className="flex flex-col gap-4">
           <div className="flex justify-between items-center border-b border-[var(--color-border)] pb-2 mb-2">
             <h3 className="font-semibold text-lg">Materials</h3>
-            <Button type="button" variant="outline" onClick={addItem} disabled={isLocked}>
-              <Plus size={16} /> Add Item
-            </Button>
+            {!isLocked && (
+              <Button type="button" variant="outline" onClick={addItem}>
+                <Plus size={16} /> Add Item
+              </Button>
+            )}
           </div>
 
           {/* Desktop Table View */}
@@ -246,205 +415,262 @@ export function PurchaseOrderForm() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[var(--color-border)]">
-                  <th className="p-2 text-sm font-semibold text-muted w-[32%]">Material</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[16%]">Quantity</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[16%]">Rate (₹)</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[13%]">Total (₹)</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[18%]">Landed Unit Cost (₹)</th>
-                  <th className="p-2 text-sm font-semibold text-muted w-[5%]"></th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[24%]">Material</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[16%]">Colour</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[12%]">Quantity</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[9%]">Unit</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[12%]">Rate (₹)</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[11%]">Total (₹)</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[12%]">Landed Unit Cost</th>
+                  <th className="p-2 text-sm font-semibold text-muted w-[4%]"></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, idx) => (
-                  <tr key={item.id} className="border-b border-[var(--color-border)] last:border-0">
+                  <tr key={item.key} className="border-b border-[var(--color-border)] last:border-0 align-top">
+                    <td className="p-2">{materialSelect(item)}{receivedText(idx) && <div className="text-xs text-muted mt-1">{receivedText(idx)}</div>}</td>
+                    <td className="p-2">{colourInput(item)}</td>
                     <td className="p-2">
-                      <select
-                        className="input-field w-full"
-                        value={item.materialId}
-                        onChange={(e) => handleItemChange(item.id, 'materialId', e.target.value)}
-                        disabled={isLocked}
-                        required
-                      >
-                        <option value="">Select Material...</option>
-                        <option value="mat-1">Cotton Fabric - Blue (m)</option>
-                        <option value="mat-2">Silk Thread - Gold (kg)</option>
-                        <option value="mat-3">Poly Blend - Red (m)</option>
-                      </select>
+                      <input type="number" inputMode="decimal" min="0.001" step="0.001" className="input-field w-full" value={item.quantity || ''}
+                        onChange={(e) => handleItemChange(item.key, 'quantity', parseFloat(e.target.value) || 0)} disabled={isLocked} required />
                     </td>
-                    <td className="p-2">
-                      <input
-                        type="number"
-                        min="1"
-                        step="0.01"
-                        className="input-field w-full"
-                        value={item.quantity || ''}
-                        onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                        disabled={isLocked}
-                        required
-                      />
-                    </td>
+                    <td className="p-2">{unitSelect(item)}</td>
                     <td className="p-2">
                       <RestrictedValue perm="purchases.rate.view">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="input-field w-full"
-                          value={item.rate || ''}
-                          onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                          disabled={isLocked}
-                          required
-                        />
+                        <input type="number" inputMode="decimal" min="0" step="0.01" className="input-field w-full" value={item.rate || ''}
+                          onChange={(e) => handleItemChange(item.key, 'rate', parseFloat(e.target.value) || 0)} disabled={isLocked} required />
                       </RestrictedValue>
                     </td>
                     <td className="p-2 font-medium">
-                      <RestrictedValue perm="purchases.rate.view">
-                        {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}
-                      </RestrictedValue>
+                      <RestrictedValue perm="purchases.rate.view">{lineAmounts[idx].toLocaleString('en-IN')}</RestrictedValue>
                     </td>
                     <td className="p-2 text-sm text-slate-600">
                       <RestrictedValue perm="purchases.rate.view">
-                        {item.quantity > 0
-                          ? (((item.quantity * item.rate) + (apportionedCharges[idx] ?? 0)) / item.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })
-                          : '—'}
+                        {landedPreview(idx) !== undefined ? landedPreview(idx)!.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : '—'}
                       </RestrictedValue>
                     </td>
                     <td className="p-2">
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        disabled={items.length === 1 || isLocked}
-                        className="icon-btn text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      {!isLocked && (
+                        <button type="button" onClick={() => removeItem(item.key)} disabled={items.length === 1}
+                          className="icon-btn text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent" aria-label={`Remove item ${idx + 1}`}>
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="text-xs text-muted mt-2">Landed unit cost = (line amount + apportioned other charges) ÷ quantity (PUR-04/§5.5) — this is the cost the resulting lot will carry once inward is confirmed.</p>
+            <p className="text-xs text-muted mt-2">Landed unit cost = (line amount + apportioned other charges) ÷ quantity (PUR-04) — the cost the resulting lot carries once inward is confirmed. Final figures are computed by the server on confirm.</p>
           </div>
 
           {/* Mobile Card View */}
-          <div className="md:hidden flex flex-col gap-4">
+          <div className="md:hidden flex flex-col gap-3">
             {items.map((item, index) => (
-              <div key={item.id} className="flex flex-col gap-3 p-4 border border-[var(--color-border)] rounded-md bg-[var(--color-background)]">
+              <div key={item.key} className="flex flex-col gap-3 p-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-background)]">
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-sm">Item {index + 1}</span>
-                  <button 
-                    type="button" 
-                    onClick={() => removeItem(item.id)}
-                    disabled={items.length === 1}
-                    className="text-red-500 disabled:opacity-30"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {!isLocked && (
+                    <button type="button" onClick={() => removeItem(item.key)} disabled={items.length === 1}
+                      className="icon-btn text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent" aria-label={`Remove item ${index + 1}`}>
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </div>
-                
                 <div className="input-group">
-                  <label className="input-label text-xs">Material</label>
-                  <select 
-                    className="input-field"
-                    value={item.materialId}
-                    onChange={(e) => handleItemChange(item.id, 'materialId', e.target.value)}
-                    required
-                  >
-                    <option value="">Select Material...</option>
-                    <option value="mat-1">Cotton Fabric - Blue</option>
-                    <option value="mat-2">Silk Thread - Gold</option>
-                  </select>
+                  <label className="text-xs font-medium text-muted">Material</label>
+                  {materialSelect(item)}
                 </div>
-                
-                <div className="flex gap-3">
-                  <div className="input-group flex-1">
-                    <label className="input-label text-xs">Qty</label>
-                    <input 
-                      type="number" 
-                      className="input-field"
-                      value={item.quantity || ''}
-                      onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                      required
-                    />
+                <div className="input-group">
+                  <label className="text-xs font-medium text-muted">Colour</label>
+                  {colourInput(item)}
+                </div>
+                {receivedText(index) && <div className="text-xs text-muted">{receivedText(index)}</div>}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="input-group">
+                    <label className="text-xs font-medium text-muted">Quantity</label>
+                    <input type="number" inputMode="decimal" min="0.001" step="0.001" className="input-field w-full" value={item.quantity || ''}
+                      onChange={(e) => handleItemChange(item.key, 'quantity', parseFloat(e.target.value) || 0)} disabled={isLocked} required />
                   </div>
-                  <div className="input-group flex-1">
-                    <label className="input-label text-xs">Rate</label>
+                  <div className="input-group">
+                    <label className="text-xs font-medium text-muted">Unit</label>
+                    {unitSelect(item)}
+                  </div>
+                  <div className="input-group">
+                    <label className="text-xs font-medium text-muted">Rate (₹)</label>
                     <RestrictedValue perm="purchases.rate.view">
-                      <input
-                        type="number"
-                        className="input-field"
-                        value={item.rate || ''}
-                        onChange={(e) => handleItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                        required
-                      />
+                      <input type="number" inputMode="decimal" min="0" step="0.01" className="input-field w-full" value={item.rate || ''}
+                        onChange={(e) => handleItemChange(item.key, 'rate', parseFloat(e.target.value) || 0)} disabled={isLocked} required />
                     </RestrictedValue>
                   </div>
-                </div>
-
-                <div className="text-right text-sm font-semibold pt-2 border-t border-[var(--color-border)]">
-                  Line Total: <RestrictedValue perm="purchases.rate.view">₹ {((item.quantity || 0) * (item.rate || 0)).toLocaleString('en-IN')}</RestrictedValue>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-medium text-muted">Total (₹)</span>
+                    <span className="text-sm font-semibold">
+                      <RestrictedValue perm="purchases.rate.view">{lineAmounts[index].toLocaleString('en-IN')}</RestrictedValue>
+                    </span>
+                  </div>
+                  <div className="col-span-2 flex flex-col gap-1">
+                    <span className="text-xs font-medium text-muted">Landed Unit Cost (₹{uomCode(item.uomId) ? ` / ${uomCode(item.uomId)}` : ''})</span>
+                    <span className="text-sm text-slate-600">
+                      <RestrictedValue perm="purchases.rate.view">
+                        {landedPreview(index) !== undefined ? landedPreview(index)!.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : '—'}
+                      </RestrictedValue>
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
+            {!isLocked && (
+              <Button type="button" variant="secondary" onClick={addItem} className="w-full"><Plus size={16} /> Add Another Item</Button>
+            )}
+            <p className="text-xs text-muted">Landed unit cost = (line amount + apportioned other charges) ÷ quantity (PUR-04).</p>
           </div>
 
-          {/* Order Total */}
           <div className="flex justify-end pt-4 mt-2">
-            <div className="bg-[var(--color-background)] p-4 rounded-lg border border-[var(--color-border)] w-full md:w-64 text-right">
+            <div className="bg-[var(--color-background)] p-4 rounded-lg border border-[var(--color-border)] w-full md:w-72 text-right">
               <span className="text-muted text-sm block">Total Order Amount</span>
               <RestrictedValue perm="purchases.rate.view">
-                <span className="text-2xl font-bold text-primary">₹ {calculateTotal().toLocaleString('en-IN')}</span>
+                {formData.otherCharges > 0 ? (
+                  <>
+                    <span className="text-xl font-bold text-primary">
+                      {formatINR(calculateTotal())} <span className="text-muted font-normal text-base">+</span> {formatINR(formData.otherCharges)}
+                    </span>
+                    <span className="text-xs text-muted block mt-1">
+                      Materials {formatINR(calculateTotal())} + Expenses {formatINR(formData.otherCharges)} = <strong>{formatINR(calculateTotal() + Number(formData.otherCharges))}</strong>
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-2xl font-bold text-primary">{formatINR(calculateTotal())}</span>
+                )}
               </RestrictedValue>
             </div>
           </div>
         </Card>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-3 sticky bottom-0 bg-[var(--color-background)] p-4 border-t border-[var(--color-border)] -mx-6 px-6">
+        <div className="grid grid-cols-[1fr_2fr] sm:flex sm:flex-row sm:justify-end gap-3 sticky bottom-0 bg-[var(--color-background)] p-4 border-t border-[var(--color-border)] -mx-4 px-4 md:-mx-6 md:px-6">
           {isLocked ? (
-            <Button type="button" variant="danger" onClick={() => setShowCancelConfirm(true)}>
-              Cancel Purchase Order
-            </Button>
+            <>
+              {status !== 'CANCELLED' && status !== 'RECEIVED' && (
+                <Can perm="purchases.cancel">
+                  <Button className="w-full sm:w-auto" type="button" variant="danger" onClick={() => setShowCancel(true)}>
+                    Cancel Purchase Order
+                  </Button>
+                </Can>
+              )}
+              {canReceive && (
+                <Can perm="inward.create">
+                  <Button className="w-full sm:w-auto" type="button" onClick={() => navigate(`/procurement/inward/${purchase!._id}`)}>
+                    <PackageCheck size={16} /> Receive Material (Inward)
+                  </Button>
+                </Can>
+              )}
+            </>
           ) : (
             <>
-              <Button type="button" variant="secondary" onClick={() => setShowCancelConfirm(true)}>
-                Cancel
+              {purchase ? (
+                <Can perm="purchases.cancel">
+                  <Button className="w-full sm:w-auto" type="button" variant="danger" onClick={() => setShowCancel(true)}>Cancel Draft</Button>
+                </Can>
+              ) : (
+                <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={() => { draft.clear(); navigate('/procurement/purchases'); }}>Discard</Button>
+              )}
+              <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={handleSaveDraft} isLoading={isSaving}>
+                Save as Draft
               </Button>
-              <Button type="submit" isLoading={isSaving}>
-                Submit Purchase Order
-              </Button>
+              <Can perm="purchases.confirm">
+                <Button className="w-full sm:w-auto" type="submit" isLoading={isSaving}>
+                  Save & Confirm PO
+                </Button>
+              </Can>
             </>
           )}
         </div>
       </form>
+
+      <PickerSheet
+        open={picker?.kind === 'supplier'}
+        title="Choose supplier"
+        items={supplierItems}
+        selectedId={formData.supplierId}
+        searchPlaceholder="Search supplier, mobile or GSTIN…"
+        onSelect={it => { setFormData(prev => ({ ...prev, supplierId: it.id })); setPicker(null); }}
+        onClose={() => setPicker(null)}
+        createLabel="supplier"
+        onCreate={q => { setPicker(null); setQuickName(q); setAddSupplierOpen(true); }}
+      />
+      <PickerSheet
+        open={picker?.kind === 'material'}
+        title="Choose material"
+        items={materialItems}
+        selectedId={pickedMaterialId}
+        searchPlaceholder="Search material…"
+        onSelect={it => { if (picker?.kind === 'material') handleItemChange(picker.key, 'materialId', it.id); setPicker(null); }}
+        onClose={() => setPicker(null)}
+        createLabel="material"
+        onCreate={q => { const key = picker?.kind === 'material' ? picker.key : null; setPicker(null); setQuickName(q); if (key) setAddMaterialForItem(key); }}
+      />
+
+      <QuickAddSupplierSheet
+        open={addSupplierOpen}
+        initialName={quickName}
+        onClose={() => setAddSupplierOpen(false)}
+        onCreated={s => {
+          setSuppliers(prev => [...prev, s].sort((a, b) => a.name.localeCompare(b.name)));
+          setFormData(prev => ({ ...prev, supplierId: s._id }));
+          setAddSupplierOpen(false);
+        }}
+      />
+
+      <QuickAddMaterialSheet
+        open={addMaterialForItem !== null}
+        initialName={quickName}
+        uoms={uoms}
+
+        onClose={() => setAddMaterialForItem(null)}
+        onCreated={material => {
+          const key = addMaterialForItem;
+          setMaterials(prev => [...prev, material].sort((a, b) => a.name.localeCompare(b.name)));
+          setAddMaterialForItem(null);
+          if (key) setItems(prev => prev.map(it => (it.key === key ? { ...it, materialId: material._id, uomId: material.baseUomId } : it)));
+        }}
+      />
 
       <ConfirmDialog
         open={showConfirm}
         title="Confirm Purchase Order"
         impact={
           <>
-            Confirming creates a <strong>pending inward</strong> for {items.length} material{items.length > 1 ? 's' : ''} from the selected supplier.
-            This does <strong>not</strong> add anything to stock yet — stock is only added once the material is physically received and inward is confirmed (BR-01).
+            Confirming creates a <strong>pending inward</strong> for {items.length} material{items.length > 1 ? 's' : ''} from {suppliers.find(s => s._id === formData.supplierId)?.name ?? 'the selected supplier'}.
+            This does <strong>not</strong> add anything to stock yet — stock is only added once the material is physically received and the inward is confirmed (BR-01). After confirming, only notes can be edited.
           </>
         }
-        confirmLabel="Submit Purchase Order"
+        confirmLabel="Confirm Purchase Order"
         isLoading={isSaving}
         onConfirm={confirmSubmit}
         onCancel={() => setShowConfirm(false)}
       />
 
       <ConfirmDialog
-        open={showCancelConfirm}
-        title={isLocked ? 'Cancel Purchase Order' : 'Discard Purchase Order'}
+        open={showCancel}
+        title="Cancel Purchase Order"
         impact={
-          isLocked
-            ? 'Cancelling a confirmed purchase order requires a reason and is blocked while any inward already exists against it (PUR-06). This mock does not yet persist a reason field — treat this as a preview of that flow.'
-            : 'Discarding this purchase order will lose all entered supplier, item, and rate details. This cannot be undone.'
+          <div className="flex flex-col gap-2">
+            <span>Cancel {purchase?.docNo}? It stays on record as Cancelled. Blocked while any inward exists against it (PUR-06).</span>
+            <textarea
+              className="input-field min-h-[70px]"
+              placeholder="Reason for cancelling (required)"
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+            />
+          </div>
         }
-        confirmLabel={isLocked ? 'Cancel Purchase Order' : 'Discard Order'}
+        confirmLabel="Cancel Purchase Order"
+        cancelLabel="Keep"
         danger
+        isLoading={isSaving}
+        confirmDisabled={!cancelReason.trim()}
         onConfirm={confirmCancel}
-        onCancel={() => setShowCancelConfirm(false)}
+        onCancel={() => setShowCancel(false)}
       />
     </div>
   );

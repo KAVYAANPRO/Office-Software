@@ -29,7 +29,7 @@ export default function ErrorPage() {
         <p className="text-slate-500 mb-8">{message}</p>
         <Link
           to="/"
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors"
+          className="inline-flex items-center gap-2 bg-[#E40043] hover:bg-[#B80037] text-white px-5 py-2.5 rounded-lg font-medium transition-colors"
         >
           <Home size={16} />
           Back to Dashboard

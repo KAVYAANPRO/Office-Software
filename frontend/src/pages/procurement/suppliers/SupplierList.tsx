@@ -3,51 +3,41 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { suppliersApi, type SupplierRecord } from '../../../lib/api/suppliers';
 
-interface Supplier {
-  id: string;
-  name: string;
-  contact: string;
-  gstin: string;
-  paymentTerms: string;
-  status: 'Active' | 'Inactive';
-}
-
-// TODO: Replace with API call — GET /api/v1/suppliers
-const mockSuppliers: Supplier[] = [
-  { id: '1', name: 'Alpha Fabrics', contact: 'Ramesh Kumar · 98765 43210', gstin: '27AADCB2230M1Z2', paymentTerms: 'Net 30', status: 'Active' },
-  { id: '2', name: 'Zeta Dyeing', contact: 'Sunil Sharma · 98765 43211', gstin: '27BBACB1230M1Z3', paymentTerms: 'Advance', status: 'Active' },
-  { id: '3', name: 'Premium Trims Ltd', contact: 'Anita Patel · 98765 43212', gstin: '24CCACB3230M1Z4', paymentTerms: 'Net 15', status: 'Inactive' },
-];
+type SupplierRow = SupplierRecord & { id: string };
 
 export function SupplierList() {
   const navigate = useNavigate();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => { setSuppliers(mockSuppliers); setIsLoading(false); }, 600);
-    return () => clearTimeout(timer);
+    suppliersApi.list()
+      .then(list => setSuppliers(list.map(s => ({ ...s, id: s._id }))))
+      .catch(() => setLoadError('Could not load suppliers from the server.'))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const filtered = suppliers.filter(s =>
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.gstin.toLowerCase().includes(searchTerm.toLowerCase())
+    (s.gstin ?? '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const columns = [
-    { header: 'Supplier Name', accessor: 'name' as keyof Supplier },
-    { header: 'Contact', accessor: 'contact' as keyof Supplier },
-    { header: 'GSTIN', accessor: 'gstin' as keyof Supplier },
-    { header: 'Payment Terms', accessor: 'paymentTerms' as keyof Supplier },
+    { header: 'Supplier Name', accessor: 'name' as keyof SupplierRow },
+    { header: 'Contact', accessor: (row: SupplierRow) => [row.contactPerson, row.mobile].filter(Boolean).join(' · ') || '—' },
+    { header: 'GSTIN', accessor: (row: SupplierRow) => row.gstin || '—' },
+    { header: 'Payment Terms', accessor: (row: SupplierRow) => row.paymentTerms || '—' },
     {
       header: 'Status',
-      accessor: (row: Supplier) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+      accessor: (row: SupplierRow) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+          row.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
         }`}>
-          {row.status}
+          {row.isActive ? 'Active' : 'Inactive'}
         </span>
       ),
     },
@@ -55,15 +45,16 @@ export function SupplierList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Suppliers</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Suppliers</h1>
           <p className="text-[var(--color-text-muted)]">Manage raw material vendors and dyeing partners.</p>
         </div>
-        <Button onClick={() => navigate('/procurement/suppliers/new')}>
+        <Button className="w-full sm:w-auto" onClick={() => navigate('/procurement/suppliers/new')}>
           <Plus size={16} /> Add Supplier
         </Button>
       </div>
+      {loadError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700">{loadError}</div>}
       <DataTable
         columns={columns}
         data={filtered}
@@ -71,7 +62,7 @@ export function SupplierList() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search suppliers by name or GSTIN..."
-        onRowClick={(row: Supplier) => navigate(`/procurement/suppliers/${row.id}`)}
+        onRowClick={(row: SupplierRow) => navigate(`/procurement/suppliers/${row.id}`)}
       />
     </div>
   );

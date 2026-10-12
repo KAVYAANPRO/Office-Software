@@ -1,93 +1,80 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
+import { RestrictedValue } from '../../../lib/permissions/Can';
+import { stockApi, fmtQty, type LotRow } from '../../../lib/api/inventory';
+import { problemMessage, formatDate } from '../../../lib/api/procurement';
 
-interface Lot {
-  id: string;
-  lotNumber: string;
-  material: string;
-  variant: string;
-  inwardDate: string;
-  supplier: string;
-  totalQty: number;
-  remainingQty: number;
-  unit: string;
-  location: string;
-  status: 'Active' | 'Exhausted' | 'Quarantine';
-}
-
-// TODO: Replace with API call — GET /api/v1/stock/lots
-const mockLots: Lot[] = [
-  { id: '1', lotNumber: 'LOT-001', material: 'Cotton Fabric', variant: 'Cotton Fabric — Navy Blue', inwardDate: '24-09-2026', supplier: 'Alpha Fabrics', totalQty: 1000, remainingQty: 800, unit: 'm', location: 'Main Warehouse', status: 'Active' },
-  { id: '2', lotNumber: 'LOT-002', material: 'Cotton Fabric', variant: 'Cotton Fabric — Ivory White', inwardDate: '23-09-2026', supplier: 'Alpha Fabrics', totalQty: 200, remainingQty: 45, unit: 'm', location: 'Main Warehouse', status: 'Active' },
-  { id: '3', lotNumber: 'LOT-003', material: 'Lining Cloth', variant: 'Lining Cloth — Black', inwardDate: '25-09-2026', supplier: 'Premium Trims Ltd', totalQty: 320, remainingQty: 320, unit: 'm', location: 'Main Warehouse', status: 'Active' },
-  { id: '4', lotNumber: 'LOT-004', material: 'Buttons', variant: 'Buttons — White 12mm', inwardDate: '22-09-2026', supplier: 'Alpha Fabrics', totalQty: 1200, remainingQty: 1200, unit: 'pcs', location: 'Main Warehouse', status: 'Active' },
-];
-
-const statusColors: Record<Lot['status'], string> = {
-  Active: 'bg-green-100 text-green-800',
-  Exhausted: 'bg-gray-100 text-gray-600',
-  Quarantine: 'bg-red-100 text-red-800',
+const statusLabel: Record<LotRow['status'], string> = { ACTIVE: 'Active', EXHAUSTED: 'Exhausted', QUARANTINE: 'Quarantine' };
+const statusColors: Record<LotRow['status'], string> = {
+  ACTIVE: 'bg-green-100 text-green-800',
+  EXHAUSTED: 'bg-gray-100 text-gray-600',
+  QUARANTINE: 'bg-red-100 text-red-800',
 };
 
 export function LotList() {
   const navigate = useNavigate();
-  const [lots, setLots] = useState<Lot[]>([]);
+  const [lots, setLots] = useState<LotRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [hideExhausted, setHideExhausted] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => { setLots(mockLots); setIsLoading(false); }, 600);
-    return () => clearTimeout(t);
+    let active = true;
+    stockApi.lots({ kind: 'RAW_MATERIAL' })
+      .then(rows => active && setLots(rows))
+      .catch(err => active && setError(problemMessage(err, 'Could not load lots.')))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
   }, []);
 
+  const q = search.toLowerCase();
   const filtered = lots.filter(l =>
-    l.lotNumber.toLowerCase().includes(search.toLowerCase()) ||
-    l.material.toLowerCase().includes(search.toLowerCase()) ||
-    l.supplier.toLowerCase().includes(search.toLowerCase())
+    (!hideExhausted || l.status !== 'EXHAUSTED') &&
+    (l.lotNo.toLowerCase().includes(q) || l.name.toLowerCase().includes(q) || (l.supplierName ?? '').toLowerCase().includes(q) || (l.originDocNo ?? '').toLowerCase().includes(q))
   );
 
   const columns = [
-    { header: 'Lot Number', accessor: 'lotNumber' as keyof Lot },
+    { header: 'Lot Number', accessor: (row: LotRow) => <span className="font-mono font-semibold text-slate-800">{row.lotNo}</span> },
     {
       header: 'Material / Variant',
-      accessor: (row: Lot) => (
+      accessor: (row: LotRow) => (
         <div>
-          <div className="text-sm font-medium text-slate-900">{row.variant}</div>
-          <div className="text-xs text-slate-500">{row.supplier} · {row.inwardDate}</div>
+          <div className="text-sm font-medium text-slate-900">{row.name}</div>
+          <div className="text-xs text-slate-500">{[row.supplierName, formatDate(row.receivedOn), row.originDocNo].filter(Boolean).join(' · ')}</div>
         </div>
       ),
     },
     {
       header: 'Quantity',
-      accessor: (row: Lot) => (
+      accessor: (row: LotRow) => (
         <div className="text-sm">
-          <span className="font-semibold text-slate-900">{row.remainingQty.toLocaleString('en-IN')}</span>
-          <span className="text-slate-400"> / {row.totalQty.toLocaleString('en-IN')} {row.unit}</span>
+          <span className="font-semibold text-slate-900">{fmtQty(row.remainingQty)}</span>
+          <span className="text-slate-400"> / {fmtQty(row.initialQty)} {row.uomCode ?? ''}</span>
         </div>
       ),
     },
     {
       header: 'Usage',
-      accessor: (row: Lot) => {
-        const pct = Math.round(((row.totalQty - row.remainingQty) / row.totalQty) * 100);
+      accessor: (row: LotRow) => {
+        const pct = row.initialQty > 0 ? Math.min(100, Math.max(0, Math.round(((row.initialQty - row.remainingQty) / row.initialQty) * 100))) : 0;
         return (
           <div className="flex items-center gap-2 min-w-[80px]">
             <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+              <div className="h-full bg-[#E40043] rounded-full" style={{ width: `${pct}%` }} />
             </div>
             <span className="text-xs text-slate-500">{pct}%</span>
           </div>
         );
       },
     },
-    { header: 'Location', accessor: 'location' as keyof Lot },
+    { header: 'Unit Cost', accessor: (row: LotRow) => <RestrictedValue perm="stock.rate.view">₹{(row.unitCost ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 4 })}</RestrictedValue> },
+    { header: 'Location', accessor: (row: LotRow) => row.locations.length ? row.locations.map(l => `${l.locationName} (${fmtQty(l.qty)})`).join(', ') : '—' },
     {
       header: 'Status',
-      accessor: (row: Lot) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[row.status]}`}>
-          {row.status}
-        </span>
+      accessor: (row: LotRow) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${statusColors[row.status]}`}>{statusLabel[row.status]}</span>
       ),
     },
   ];
@@ -95,18 +82,23 @@ export function LotList() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Lots</h1>
-        <p className="text-sm text-slate-500">Track raw material lots. Each inward creates a traceable lot.</p>
+        <h1 className="text-xl md:text-2xl font-bold text-slate-900">Lots</h1>
+        <p className="text-sm text-slate-500">Track raw material lots. Each inward creates a traceable lot carrying its landed cost.</p>
       </div>
+      {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-4 py-3">{error}</p>}
+      <label className="flex items-center gap-2 text-sm text-slate-600 select-none">
+        <input type="checkbox" className="w-4 h-4" checked={hideExhausted} onChange={e => setHideExhausted(e.target.checked)} />
+        Hide exhausted lots
+      </label>
       <DataTable
         columns={columns}
         data={filtered}
         isLoading={isLoading}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by lot, material, or supplier..."
+        searchPlaceholder="Search by lot, material, supplier or inward..."
         emptyMessage="No lots found."
-        onRowClick={(row: Lot) => navigate(`/inventory/lots/${row.lotNumber}`)}
+        onRowClick={(row: LotRow) => navigate(`/inventory/ledger?lotId=${row.lotId}`)}
       />
     </div>
   );

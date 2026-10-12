@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { Can } from '../../../lib/permissions/Can';
+import { stockAdjustmentsApi, fmtQty, type StockAdjustmentRow } from '../../../lib/api/inventory';
+import { problemMessage, formatDate } from '../../../lib/api/procurement';
 
 interface Adjustment {
   id: string;
+  docNo: string;
   date: string;
   item: string;
   lot: string;
-  currentQty: number;
-  adjustedQty: number;
+  location: string;
   difference: number;
   unit: string;
   reason: string;
@@ -18,13 +21,9 @@ interface Adjustment {
   createdBy: string;
 }
 
-// TODO: Replace with API call — GET /api/v1/stock/adjustments
-const mockAdjustments: Adjustment[] = [
-  { id: 'ADJ-001', date: '24-09-2026', item: 'Cotton Fabric — Navy Blue', lot: 'LOT-001', currentQty: 900, adjustedQty: 850, difference: -50, unit: 'm', reason: 'Physical count correction — weaving defect discovered', status: 'Approved', createdBy: 'Admin' },
-  { id: 'ADJ-002', date: '25-09-2026', item: 'Lining Cloth — Black', lot: 'LOT-003', currentQty: 320, adjustedQty: 315, difference: -5, unit: 'm', reason: 'Damaged during shifting', status: 'Pending Approval', createdBy: 'Admin' },
-  { id: 'ADJ-003', date: '26-09-2026', item: 'Buttons — White 12mm', lot: 'LOT-004', currentQty: 1200, adjustedQty: 1250, difference: 50, unit: 'pcs', reason: 'Recount — previous count was incorrect', status: 'Approved', createdBy: 'Admin' },
-];
-
+const STATUS: Record<StockAdjustmentRow['status'], Adjustment['status']> = {
+  PROPOSED: 'Pending Approval', APPROVED: 'Approved', REJECTED: 'Rejected',
+};
 const statusColors: Record<Adjustment['status'], string> = {
   'Pending Approval': 'bg-yellow-100 text-yellow-800',
   'Approved': 'bg-green-100 text-green-800',
@@ -35,42 +34,52 @@ export function StockAdjustmentList() {
   const navigate = useNavigate();
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    const t = setTimeout(() => { setAdjustments(mockAdjustments); setIsLoading(false); }, 600);
-    return () => clearTimeout(t);
+    let active = true;
+    stockAdjustmentsApi.list()
+      .then(rows => active && setAdjustments(rows.map(r => ({
+        id: r._id,
+        docNo: r.docNo,
+        date: formatDate(r.docDate),
+        item: r.itemName ?? '—',
+        lot: r.lotNo ?? (r.direction === 'IN' ? 'new lot' : '—'),
+        location: r.locationName ?? r.locationCode ?? '—',
+        difference: r.direction === 'OUT' ? -r.qty : r.qty,
+        unit: r.uomCode ?? '',
+        reason: r.reason,
+        status: STATUS[r.status],
+        createdBy: r.createdByName ?? '—',
+      }))))
+      .catch(err => active && setError(problemMessage(err, 'Could not load stock adjustments.')))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
   }, []);
 
+  const q = search.toLowerCase();
   const filtered = adjustments.filter(a =>
-    a.item.toLowerCase().includes(search.toLowerCase()) ||
-    a.id.toLowerCase().includes(search.toLowerCase())
+    a.item.toLowerCase().includes(q) || a.docNo.toLowerCase().includes(q) || a.lot.toLowerCase().includes(q)
   );
 
   const columns = [
-    { header: 'Adj. ID', accessor: 'id' as keyof Adjustment },
+    { header: 'Adj. No.', accessor: (row: Adjustment) => <span className="font-mono font-semibold text-[#B80037]">{row.docNo}</span> },
     { header: 'Date', accessor: 'date' as keyof Adjustment },
-    { header: 'Item', accessor: 'item' as keyof Adjustment },
+    { header: 'Item', accessor: (row: Adjustment) => <div><div className="text-sm font-medium">{row.item}</div><div className="text-xs text-slate-500">{row.location} · lot {row.lot}</div></div> },
     {
       header: 'Adjustment',
       accessor: (row: Adjustment) => (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-slate-600">{row.currentQty.toLocaleString('en-IN')} {row.unit}</span>
-          <span className="text-slate-400">→</span>
-          <span className="font-semibold text-slate-900">{row.adjustedQty.toLocaleString('en-IN')} {row.unit}</span>
-          <span className={`text-xs font-medium ${row.difference < 0 ? 'text-red-600' : 'text-green-600'}`}>
-            ({row.difference > 0 ? '+' : ''}{row.difference} {row.unit})
-          </span>
-        </div>
+        <span className={`text-sm font-semibold ${row.difference < 0 ? 'text-red-600' : 'text-green-600'}`}>
+          {row.difference > 0 ? '+' : ''}{fmtQty(row.difference)} {row.unit}
+        </span>
       ),
     },
     { header: 'Reason', accessor: 'reason' as keyof Adjustment },
     {
       header: 'Status',
       accessor: (row: Adjustment) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[row.status]}`}>
-          {row.status}
-        </span>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${statusColors[row.status]}`}>{row.status}</span>
       ),
     },
     { header: 'By', accessor: 'createdBy' as keyof Adjustment },
@@ -78,15 +87,18 @@ export function StockAdjustmentList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Stock Adjustments</h1>
-          <p className="text-sm text-slate-500">Record and track stock corrections. Large adjustments require approval.</p>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-900">Stock Adjustments</h1>
+          <p className="text-sm text-slate-500">Record and track stock corrections. Every adjustment is approved before it posts.</p>
         </div>
-        <Button onClick={() => navigate('/inventory/adjustments/new')}>
-          <Plus size={16} /> New Adjustment
-        </Button>
+        <Can perm="adjustments.create">
+          <Button className="w-full sm:w-auto" onClick={() => navigate('/inventory/adjustments/new')}>
+            <Plus size={16} /> New Adjustment
+          </Button>
+        </Can>
       </div>
+      {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-4 py-3">{error}</p>}
       <DataTable
         columns={columns}
         data={filtered}

@@ -19,8 +19,8 @@ interface CardHeaderProps extends HTMLAttributes<HTMLDivElement> {
 
 export function CardHeader({ title, action, className = '', ...props }: CardHeaderProps) {
   return (
-    <div className={`flex items-center justify-between mb-4 ${className}`} {...props}>
-      <h3 className="text-lg font-semibold text-[var(--color-text-main)]">{title}</h3>
+    <div className={`flex flex-wrap items-center justify-between gap-2 mb-4 ${className}`} {...props}>
+      <h3 className="text-base md:text-lg font-semibold min-w-0 text-[var(--color-text-main)]">{title}</h3>
       {action && <div>{action}</div>}
     </div>
   );

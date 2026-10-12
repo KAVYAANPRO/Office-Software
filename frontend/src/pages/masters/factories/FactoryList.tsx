@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { factoriesApi } from '../../../lib/api/factories';
+import { toProblem } from '../../../lib/api/production';
 
 interface Factory {
   id: string;
@@ -13,74 +15,70 @@ interface Factory {
   status: 'Active' | 'Inactive';
 }
 
-const mockFactories: Factory[] = [
-  { id: '1', name: 'Krishna Dyeing Works', contact: 'Kishore (9876500001)', specialty: 'Dyeing', address: 'Plot 45, GIDC', status: 'Active' },
-  { id: '2', name: 'Super Stitchers', contact: 'Ramesh (9876500002)', specialty: 'Stitching', address: 'Unit 2, Industrial Area', status: 'Active' },
-  { id: '3', name: 'Precision Cutters', contact: 'Amit (9876500003)', specialty: 'Cutting', address: 'Shed 12, Main Road', status: 'Inactive' },
-];
-
 export function FactoryList() {
   const navigate = useNavigate();
   const [factories, setFactories] = useState<Factory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setFactories(mockFactories);
-      setIsLoading(false);
-    }, 800);
-    return () => clearTimeout(timer);
+    factoriesApi.list()
+      .then(list => setFactories(list.map(f => ({
+        id: f._id,
+        name: f.name,
+        contact: [f.contactPerson, f.mobile ? `(${f.mobile})` : ''].filter(Boolean).join(' ') || '—',
+        specialty: f.specialty || '—',
+        address: f.address || '—',
+        status: f.isActive ? 'Active' : 'Inactive',
+      }))))
+      .catch(err => setLoadError(toProblem(err, 'Could not load factories.').detail))
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const filteredFactories = factories.filter(f => 
-    f.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    f.specialty.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const q = searchTerm.toLowerCase();
+  const filteredFactories = factories.filter(f => f.name.toLowerCase().includes(q) || f.specialty.toLowerCase().includes(q) || f.contact.toLowerCase().includes(q));
 
   const columns = [
-    { header: 'Factory/Artisan Name', accessor: 'name' as keyof Factory },
+    { header: 'Factory Name', accessor: 'name' as keyof Factory },
     { header: 'Contact', accessor: 'contact' as keyof Factory },
-    { 
-      header: 'Specialty', 
+    {
+      header: 'Specialty',
       accessor: (row: Factory) => (
-        <span className="px-2 py-1 rounded-md text-xs font-medium bg-indigo-100 text-indigo-800 border border-indigo-200">
-          {row.specialty}
-        </span>
-      ) 
+        <span className="px-2 py-1 rounded-md text-xs font-medium bg-[#FFDCE5] text-[#8F002B] border border-[#FFB8CA]">{row.specialty}</span>
+      ),
     },
     { header: 'Address', accessor: 'address' as keyof Factory },
-    { 
-      header: 'Status', 
+    {
+      header: 'Status',
       accessor: (row: Factory) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-        }`}>
-          {row.status}
-        </span>
-      )
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{row.status}</span>
+      ),
     },
   ];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Factories & Artisans</h1>
-          <p className="text-muted">Manage production partners and their specialties.</p>
+          <h1 className="text-xl md:text-2xl font-bold">Factories</h1>
+          <p className="text-muted">Production partner units. Individual karigars are managed under Production &gt; Karigars.</p>
         </div>
-        <Button onClick={() => navigate('/masters/factories/new')}>
+        <Button className="w-full sm:w-auto" onClick={() => navigate('/masters/factories/new')}>
           <Plus size={16} /> Add Factory
         </Button>
       </div>
 
-      <DataTable 
+      {loadError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700">{loadError}</div>}
+
+      <DataTable
         columns={columns}
         data={filteredFactories}
         isLoading={isLoading}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        searchPlaceholder="Search by name or specialty..."
+        searchPlaceholder="Search by name, contact or specialty..."
+        emptyMessage="No factories yet."
         onRowClick={(row: Factory) => navigate(`/masters/factories/${row.id}`)}
       />
     </div>

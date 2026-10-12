@@ -3,80 +3,68 @@ import { useNavigate } from 'react-router-dom';
 import { DataTable } from '../../../components/tables/DataTable';
 import { Button } from '../../../components/ui/Button';
 import { Plus } from 'lucide-react';
+import { masterCrudApi } from '../../../lib/api/masterCrud';
 
-interface Process {
+interface ProcessRow {
   id: string;
   name: string;
-  description: string;
-  defaultCost: number;
-  status: 'Active' | 'Inactive';
+  isActive: boolean;
 }
 
-const mockProcesses: Process[] = [
-  { id: '1', name: 'Cutting', description: 'Raw material cutting based on pattern', defaultCost: 15, status: 'Active' },
-  { id: '2', name: 'Dyeing', description: 'Color treatment for fabric', defaultCost: 45, status: 'Active' },
-  { id: '3', name: 'Stitching', description: 'Garment assembly', defaultCost: 120, status: 'Active' },
-  { id: '4', name: 'Embroidery', description: 'Custom thread work', defaultCost: 250, status: 'Active' },
-  { id: '5', name: 'Finishing', description: 'Ironing, quality check and packing', defaultCost: 25, status: 'Active' },
-];
+const api = masterCrudApi<{ _id: string; name: string; isActive: boolean }>('/processing-types');
 
 export function ProcessList() {
   const navigate = useNavigate();
-  const [processes, setProcesses] = useState<Process[]>([]);
+  const [processes, setProcesses] = useState<ProcessRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setProcesses(mockProcesses);
-      setIsLoading(false);
-    }, 600);
-    return () => clearTimeout(timer);
+    api.list()
+      .then(data => setProcesses(data.map(r => ({ id: r._id, name: r.name, isActive: r.isActive }))))
+      .catch(() => setError('Failed to load processing types.'))
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const filteredProcesses = processes.filter(p => 
+  const filtered = processes.filter(p =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const columns = [
-    { header: 'Process Name', accessor: 'name' as keyof Process },
-    { header: 'Description', accessor: 'description' as keyof Process },
-    { 
-      header: 'Default Cost (₹)', 
-      accessor: (row: Process) => `₹ ${row.defaultCost.toFixed(2)}`
-    },
-    { 
-      header: 'Status', 
-      accessor: (row: Process) => (
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-          row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+    { header: 'Process Name', accessor: 'name' as keyof ProcessRow },
+    {
+      header: 'Status',
+      accessor: (row: ProcessRow) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+          row.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
         }`}>
-          {row.status}
+          {row.isActive ? 'Active' : 'Inactive'}
         </span>
-      )
+      ),
     },
   ];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Manufacturing Processes</h1>
-          <p className="text-muted">Define standard processes and default piece rates.</p>
+          <h1 className="text-xl md:text-2xl font-bold">Processing Types</h1>
+          <p className="text-muted">Define processing type names for job slips.</p>
         </div>
-        <Button onClick={() => navigate('/masters/processes/new')}>
+        <Button className="w-full sm:w-auto" onClick={() => navigate('/masters/processes/new')}>
           <Plus size={16} /> Add Process
         </Button>
       </div>
-
-      <DataTable 
+      {error && <p className="text-red-600 text-sm">{error}</p>}
+      <DataTable
         columns={columns}
-        data={filteredProcesses}
+        data={filtered}
         isLoading={isLoading}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search processes by name..."
-        onRowClick={(row: Process) => navigate(`/masters/processes/${row.id}`)}
+        onRowClick={(row) => navigate(`/masters/processes/${row.id}`)}
       />
     </div>
   );
